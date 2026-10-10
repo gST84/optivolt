@@ -870,6 +870,14 @@
                 </span>
               </label>
             </div>
+            <label class="block text-sm">Home battery floor for EV (%)
+              <input id="ev-ess-soc-floor" type="number" min="0" max="100" step="1"
+                class="form-input" data-settings-input />
+              <span class="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                Below this home battery SoC the EV only charges from solar (no grid, no battery).
+                0 = off.
+              </span>
+            </label>
             <label class="block text-sm">SoC sensor entity ID
               <input id="ev-soc-sensor" type="text" placeholder="sensor.ev_battery_level"
                 class="form-input font-mono text-xs" data-no-autosolve data-settings-input />
@@ -1013,6 +1021,25 @@
                 </div>
               </div>
             </div>
+          </div>
+
+          <!-- Weekly charging: recurring windows, stored as JSON in a hidden settings input -->
+          <div class="rounded-lg border border-slate-200/70 dark:border-white/10 p-3">
+            <div class="mb-2 flex items-center justify-between">
+              <span class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Weekly charging</span>
+              <button id="ev-weekly-add" type="button"
+                class="text-xs font-medium text-sky-600 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300">+ Add day</button>
+            </div>
+            <input id="ev-weekly-schedule" type="hidden" data-settings-input />
+            <ul id="ev-weekly-list" class="space-y-1.5"></ul>
+            <p id="ev-weekly-empty" class="text-xs text-slate-500 dark:text-slate-400">
+              No weekly windows: the EV may charge whenever it is plugged in.
+            </p>
+            <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              With windows set, the EV only charges inside them and must reach the target SoC by
+              the end time (an end before the start is the next day). Use an extra horizon of a
+              few days so the home battery can be filled cheaply ahead of time.
+            </p>
           </div>
 
           <label class="block text-sm">

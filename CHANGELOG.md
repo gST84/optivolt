@@ -21,6 +21,9 @@ Still the current version; everything below has shipped under it.
   model and daily accuracy reporting.
 - EV charging is planned by the solver: availability windows, SoC targets and
   expected arrival, plus `/ev/current` and `/ev/schedule` for charger control.
+- Weekly EV charging windows (e.g. Wednesday and Sunday evening with a target
+  SoC) and a home battery floor below which the EV only charges from solar,
+  enforced both in the plan and live in `/ev/current`.
 - Optional extended planning horizon of up to six extra days, using forecast
   prices beyond the published day-ahead window.
 - Periodic battery rebalancing: a scheduled window that charges the pack to

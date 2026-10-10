@@ -41,6 +41,8 @@ export const lpVar = {
   pvToEv:        makeFamily('pv_to_ev'),
   batteryToEv:   makeFamily('battery_to_ev'),
   evOn:          makeFamily('ev_on'),
+  /** Binary: 1 when the EV may draw from grid/battery in slot t (home battery above the floor). */
+  evGridOk:      makeFamily('ev_grid_ok'),
   evSoc:         makeFamily('ev_soc'),
   startBalance:  makeFamily('start_balance'),
 } as const;

@@ -1,5 +1,6 @@
 import { SOLUTION_COLORS } from "./charts.js";
 import { parseQuickSettingSelection, writeQuickSettingSelection } from "./optimizer-quick-settings.js";
+import { readWeeklySchedule, renderWeeklySchedule } from "./ev-weekly.js";
 
 // ---------- UI <-> settings snapshot ----------
 export function snapshotUI(els) {
@@ -52,6 +53,8 @@ export function snapshotUI(els) {
     evMaxSoc_percent: num(els.evMaxSoc?.value),
     evSocValue_cents_per_kWh: num(els.evSocValuation?.value),
     evTripSocBuffer_percent: num(els.evTripSocBuffer?.value),
+    evEssSocFloor_percent: num(els.evEssSocFloor?.value),
+    evWeeklySchedule: readWeeklySchedule(els.evWeeklySchedule),
     evSocSensor: els.evSocSensor?.value ?? '',
     evPlugSensor: els.evPlugSensor?.value ?? '',
 
@@ -125,6 +128,8 @@ export function hydrateUI(els, obj = {}) {
   setIfDef(els.evMaxSoc, obj.evMaxSoc_percent);
   setIfDef(els.evSocValuation, obj.evSocValue_cents_per_kWh);
   setIfDef(els.evTripSocBuffer, obj.evTripSocBuffer_percent);
+  setIfDef(els.evEssSocFloor, obj.evEssSocFloor_percent);
+  if (Array.isArray(obj.evWeeklySchedule)) renderWeeklySchedule(els, obj.evWeeklySchedule);
   setIfDef(els.evSocSensor, obj.evSocSensor);
   setIfDef(els.evPlugSensor, obj.evPlugSensor);
 

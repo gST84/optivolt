@@ -60,6 +60,18 @@ export interface EvConfig {
   availabilityWindows: EvAvailabilityWindow[];
   /** SoC deadlines layered onto the plan. Empty means no enforced target (latent charging only). */
   targets: EvSocTarget[];
+  /**
+   * Optional per-slot charging permission (length T), e.g. from a recurring weekly charging
+   * schedule. A slot marked false cannot charge even inside an availability window; the SoC
+   * chain is unaffected. Absent = every slot inside a window may charge.
+   */
+  chargeAllowed?: boolean[];
+  /**
+   * Home battery SoC floor in Wh. While the home battery is below it, the EV may only charge from
+   * PV (no grid, no battery). Enforced on both the start- and end-of-slot battery SoC.
+   * Absent or 0 = disabled.
+   */
+  essSocFloor_Wh?: number;
 }
 
 /**

@@ -55,10 +55,29 @@ export interface Settings {
   evMaxSoc_percent: number;
   evSocValue_cents_per_kWh: number;
   evTripSocBuffer_percent: number;
+  /**
+   * Recurring weekly charging windows. When non-empty, the EV only charges inside these windows
+   * and must reach each window's SoC target by its end.
+   */
+  evWeeklySchedule: EvWeeklyScheduleSlot[];
+  /** Home battery SoC below which the EV may only charge from PV. 0 = disabled. */
+  evEssSocFloor_percent: number;
   /** Extra planning days beyond the standard day-ahead window. 0 = off (default behaviour). */
   extendedHorizonDays: number;
   /** URL of a price-forecast JSON feed (energieprijs forecast.json format). Empty = disabled. */
   priceForecastUrl: string;
+}
+
+/** One recurring weekly EV charging window, in the server's local time. */
+export interface EvWeeklyScheduleSlot {
+  /** Day the window starts on: 0 = Sunday … 6 = Saturday (JS Date#getDay). */
+  weekday: number;
+  /** Window start, "HH:MM" (24 h). */
+  start: string;
+  /** Window end, "HH:MM"; at or before `start` means the next day. */
+  end: string;
+  /** SoC the EV must reach by the end of the window, in %. */
+  soc_percent: number;
 }
 
 // ----------------------------- Persisted data ---------------------------

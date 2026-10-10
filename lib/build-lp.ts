@@ -99,6 +99,7 @@ export function buildLP({
   const pvToEv      = lpVar.pvToEv.name;
   const batteryToEv = lpVar.batteryToEv.name;
   const evOn        = lpVar.evOn.name;
+  const evGridOk    = lpVar.evGridOk.name;
   const evSocVar    = lpVar.evSoc.name;
 
   // EV derived constants (only used when ev is defined)
@@ -123,6 +124,16 @@ export function buildLP({
     .sort((a, b) => a.startSlot - b.startSlot);
   const evAvailable: boolean[] = Array(T).fill(false);
   for (const w of evWindows) for (let t = w.startSlot; t < w.endSlot; t++) evAvailable[t] = true;
+  // A charging mask (e.g. a weekly schedule) further restricts which in-window slots may charge.
+  // It only gates ev_on_t, so the SoC chain of the window is untouched.
+  if (ev?.chargeAllowed) {
+    for (let t = 0; t < T; t++) if (ev.chargeAllowed[t] === false) evAvailable[t] = false;
+  }
+  // Home-battery floor: below it the EV may only charge from PV. Modelled with a binary per
+  // available slot (ev_grid_ok_t) that gates grid→EV and battery→EV and requires the battery SoC
+  // at both ends of the slot to be at/above the floor.
+  const essFloor_Wh = Math.max(0, ev?.essSocFloor_Wh ?? 0);
+  const evFloorActive = ev != null && essFloor_Wh > 0;
   const evResetAt = new Map<number, number>();
   for (const w of evWindows) if (w.resetSoc_Wh != null) evResetAt.set(w.startSlot, w.resetSoc_Wh);
   // Trip drops: window starts that continue the previous SoC chain minus a fixed usage.
@@ -334,6 +345,20 @@ export function buildLP({
       }
     }
 
+    // Home-battery floor for non-PV EV charging (see evFloorActive above).
+    if (evFloorActive) {
+      for (let t = 0; t < T; t++) {
+        if (!evAvailable[t]) continue;
+        lines.push(` c_ev_floor_flow_${t}: ${gridToEv(t)} + ${batteryToEv(t)} - ${toNum(evMaxPow_W)} ${evGridOk(t)} <= 0`);
+        lines.push(` c_ev_floor_end_${t}: ${soc(t)} - ${toNum(essFloor_Wh)} ${evGridOk(t)} >= 0`);
+        if (t > 0) {
+          lines.push(` c_ev_floor_start_${t}: ${soc(t - 1)} - ${toNum(essFloor_Wh)} ${evGridOk(t)} >= 0`);
+        } else if (initialSoc_Wh < essFloor_Wh) {
+          lines.push(` c_ev_floor_start_0: ${evGridOk(0)} = 0`);
+        }
+      }
+    }
+
     // SoC deadlines layered onto the plan.
     for (const tg of evTargets) {
       lines.push(` c_ev_target_${tg.slot}: ${evSocVar(tg.slot)} >= ${toNum(tg.soc_Wh)}`);
@@ -413,6 +438,11 @@ export function buildLP({
     if (evActive) {
       for (let t = 0; t < T; t++) {
         lines.push(` ${evOn(t)}`);
+      }
+    }
+    if (evFloorActive) {
+      for (let t = 0; t < T; t++) {
+        if (evAvailable[t]) lines.push(` ${evGridOk(t)}`);
       }
     }
     lines.push("");
