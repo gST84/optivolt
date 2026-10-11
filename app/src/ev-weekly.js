@@ -1,6 +1,7 @@
-// Recurring weekly EV charging windows ("Wed 18:00 → 07:00, 80%").
+// Recurring weekly EV charging plans ("Plan 1: 18:00 → 07:00, 80%, on Wed + Sun").
 //
-// The schedule is a settings field (evWeeklySchedule). Rows are rendered dynamically, so instead
+// The schedule is a settings field (evWeeklySchedule): each plan is a time window, a target SoC
+// and the weekdays it applies on. Rows are rendered dynamically, so instead
 // of marking each row input as a settings input, the serialized schedule lives in one hidden
 // `data-settings-input` element: editing a row rewrites its value and dispatches a `change`
 // event, which the global settings wiring turns into a save + recompute.
@@ -16,7 +17,10 @@ const WEEKDAYS = [
   { value: 0, label: "Sun" },
 ];
 
-const DEFAULT_SLOT = { weekday: 3, start: "18:00", end: "07:00", soc_percent: 80 };
+const DEFAULT_SLOT = { weekdays: [], start: "18:00", end: "07:00", soc_percent: 80, ess_soc_percent: 100 };
+
+// Settings saved before plans could span several days hold a single `weekday`.
+const weekdaysOf = (slot) => (Array.isArray(slot.weekdays) ? slot.weekdays : slot.weekday != null ? [Number(slot.weekday)] : []);
 
 export function readWeeklySchedule(hiddenInput) {
   if (!hiddenInput?.value) return [];
@@ -35,34 +39,46 @@ function writeWeeklySchedule(hiddenInput, schedule, { notify = true } = {}) {
 }
 
 function rowSummary(slot) {
-  const day = WEEKDAYS.find((d) => d.value === slot.weekday)?.label ?? "?";
+  const selected = weekdaysOf(slot);
+  const days = WEEKDAYS.filter((d) => selected.includes(d.value)).map((d) => d.label).join(", ") || "no days";
   const overnight = slot.end <= slot.start;
-  return `${day} ${slot.start} → ${overnight ? "next day " : ""}${slot.end}, ${slot.soc_percent}%`;
+  return `${days}: ${slot.start} → ${overnight ? "next day " : ""}${slot.end}, EV up to ${slot.soc_percent}%, `
+    + `home battery ${slot.ess_soc_percent ?? 100}% at the start`;
 }
 
 function buildRow(slot, index, onChange, onRemove) {
   const li = document.createElement("li");
-  li.className = "flex flex-wrap items-center gap-1.5";
+  li.className = "space-y-1.5 rounded-md border border-slate-200/70 dark:border-white/10 p-2";
   li.dataset.index = String(index);
   li.title = rowSummary(slot);
 
-  const day = document.createElement("select");
-  day.className = "form-input !mt-0 w-auto text-xs";
-  day.setAttribute("aria-label", "Weekday");
-  for (const d of WEEKDAYS) {
-    const opt = document.createElement("option");
-    opt.value = String(d.value);
-    opt.textContent = d.label;
-    if (d.value === slot.weekday) opt.selected = true;
-    day.append(opt);
-  }
+  const name = document.createElement("span");
+  name.className = "text-xs font-medium";
+  name.textContent = `Plan ${index + 1}`;
+
+  const selected = weekdaysOf(slot);
+  const days = document.createElement("div");
+  days.className = "flex flex-wrap gap-x-3";
+  days.setAttribute("role", "group");
+  days.setAttribute("aria-label", `Plan ${index + 1} days`);
+  const dayBoxes = WEEKDAYS.map((d) => {
+    const label = document.createElement("label");
+    label.className = "inline-flex items-center gap-1 text-xs";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.value = String(d.value);
+    box.checked = selected.includes(d.value);
+    label.append(box, d.label);
+    days.append(label);
+    return box;
+  });
 
   const timeInput = (value, label) => {
     const input = document.createElement("input");
     input.type = "time";
     input.step = "900";
     input.value = value;
-    input.className = "form-input !mt-0 w-auto text-xs";
+    input.className = "form-input !mt-0 w-24 text-xs";
     input.setAttribute("aria-label", label);
     return input;
   };
@@ -73,39 +89,56 @@ function buildRow(slot, index, onChange, onRemove) {
   arrow.className = "text-xs text-slate-400";
   arrow.textContent = "→";
 
-  const soc = document.createElement("input");
-  soc.type = "number";
-  soc.min = "0";
-  soc.max = "100";
-  soc.step = "1";
-  soc.value = String(slot.soc_percent);
-  soc.className = "form-input !mt-0 w-16 text-xs";
-  soc.setAttribute("aria-label", "Target SoC (%)");
-
-  const pct = document.createElement("span");
-  pct.className = "text-xs text-slate-400";
-  pct.textContent = "%";
+  const percentInput = (value, label) => {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.max = "100";
+    input.step = "1";
+    input.value = String(value);
+    input.className = "form-input !mt-0 w-16 text-xs";
+    input.setAttribute("aria-label", label);
+    return input;
+  };
+  const caption = (text) => {
+    const span = document.createElement("span");
+    span.className = "text-xs text-slate-400";
+    span.textContent = text;
+    return span;
+  };
+  const soc = percentInput(slot.soc_percent, "EV charge limit (%)");
+  const pct = caption("%");
+  const ess = percentInput(slot.ess_soc_percent ?? 100, "Home battery level at the start (%)");
 
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "ml-auto text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400";
   remove.textContent = "Remove";
-  remove.setAttribute("aria-label", "Remove weekly charging window");
+  remove.setAttribute("aria-label", `Remove plan ${index + 1}`);
 
   const emit = () => {
     const socValue = Number(soc.value);
-    if (!start.value || !end.value || !Number.isFinite(socValue) || socValue < 0 || socValue > 100) return;
+    const essValue = Number(ess.value);
+    const percent = (v) => Number.isFinite(v) && v >= 0 && v <= 100;
+    if (!start.value || !end.value || !percent(socValue) || !percent(essValue)) return;
     onChange(index, {
-      weekday: Number(day.value),
+      weekdays: dayBoxes.filter((box) => box.checked).map((box) => Number(box.value)),
       start: start.value,
       end: end.value,
       soc_percent: Math.round(socValue),
+      ess_soc_percent: Math.round(essValue),
     });
   };
-  for (const input of [day, start, end, soc]) input.addEventListener("change", emit);
+  for (const input of [...dayBoxes, start, end, soc, ess]) input.addEventListener("change", emit);
   remove.addEventListener("click", () => onRemove(index));
 
-  li.append(day, start, arrow, end, soc, pct, remove);
+  const top = document.createElement("div");
+  top.className = "flex flex-wrap items-center gap-1.5";
+  top.append(name, start, arrow, end, remove);
+  const levels = document.createElement("div");
+  levels.className = "flex flex-wrap items-center gap-1.5";
+  levels.append(caption("EV up to"), soc, pct, caption("· home battery"), ess, caption("% at start"));
+  li.append(top, levels, days);
   return li;
 }
 

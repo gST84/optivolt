@@ -13,6 +13,8 @@ export function parseHhMm(value: unknown): number | null {
 /**
  * Validate and normalize a weekly charging schedule as stored in settings. Throws an Error with a
  * field-specific message on the first invalid slot; the caller maps it to a validation error.
+ *
+ * A legacy slot with a single `weekday` is accepted and converted to `weekdays: [weekday]`.
  */
 export function normalizeWeeklySchedule(raw: unknown): EvWeeklyScheduleSlot[] {
   if (raw == null) return [];
@@ -22,21 +24,30 @@ export function normalizeWeeklySchedule(raw: unknown): EvWeeklyScheduleSlot[] {
       throw new Error(`evWeeklySchedule[${i}] must be an object`);
     }
     const s = slot as Record<string, unknown>;
-    const weekday = Number(s.weekday);
-    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
-      throw new Error(`evWeeklySchedule[${i}].weekday must be an integer in [0, 6] (0 = Sunday)`);
+    const rawDays = s.weekdays ?? (s.weekday != null ? [s.weekday] : null);
+    if (!Array.isArray(rawDays)) throw new Error(`evWeeklySchedule[${i}].weekdays must be an array`);
+    const days = rawDays.map(Number);
+    if (days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+      throw new Error(`evWeeklySchedule[${i}].weekdays must hold integers in [0, 6] (0 = Sunday)`);
     }
+    const weekdays = [...new Set(days)].sort((a, b) => a - b);
     if (parseHhMm(s.start) == null) throw new Error(`evWeeklySchedule[${i}].start must be "HH:MM"`);
     if (parseHhMm(s.end) == null) throw new Error(`evWeeklySchedule[${i}].end must be "HH:MM"`);
     const soc_percent = Number(s.soc_percent);
     if (!Number.isFinite(soc_percent) || soc_percent < 0 || soc_percent > 100) {
       throw new Error(`evWeeklySchedule[${i}].soc_percent must be a number in [0, 100]`);
     }
+    // Absent on schedules saved before the field existed: a full home battery.
+    const ess_soc_percent = s.ess_soc_percent == null ? 100 : Number(s.ess_soc_percent);
+    if (!Number.isFinite(ess_soc_percent) || ess_soc_percent < 0 || ess_soc_percent > 100) {
+      throw new Error(`evWeeklySchedule[${i}].ess_soc_percent must be a number in [0, 100]`);
+    }
     return {
-      weekday,
+      weekdays,
       start: (s.start as string).trim(),
       end: (s.end as string).trim(),
       soc_percent,
+      ess_soc_percent,
     };
   });
 }
@@ -45,6 +56,7 @@ export interface WeeklyOccurrence {
   startMs: number;
   endMs: number;
   soc_percent: number;
+  ess_soc_percent: number;
 }
 
 /**
@@ -52,8 +64,9 @@ export interface WeeklyOccurrence {
  *
  * Times are interpreted in the server's local time zone, matching the day-ahead window rule in
  * lib/time-series-utils.ts. An end time at or before the start time rolls over to the next day
- * ("Wednesday 18:00 → 07:00" ends Thursday 07:00); start == end is a full 24 h window. Windows
- * that overlap are merged, keeping the higher SoC target.
+ * ("Wednesday 18:00 → 07:00" ends Thursday 07:00); start == end is a full 24 h window. A slot
+ * applies on each of its `weekdays` (none = inactive). Windows that overlap are merged, keeping
+ * the higher SoC target.
  */
 export function expandWeeklySchedule(
   schedule: EvWeeklyScheduleSlot[],
@@ -69,14 +82,16 @@ export function expandWeeklySchedule(
   for (let k = -1; k <= days; k++) {
     const day = new Date(from.getFullYear(), from.getMonth(), from.getDate() + k);
     for (const slot of schedule) {
-      if (day.getDay() !== slot.weekday) continue;
+      if (!slot.weekdays.includes(day.getDay())) continue;
       const startMin = parseHhMm(slot.start);
       const endMin = parseHhMm(slot.end);
       if (startMin == null || endMin == null) continue;
       const startMs = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, startMin).getTime();
       const endDayOffset = endMin <= startMin ? 1 : 0;
       const endMs = new Date(day.getFullYear(), day.getMonth(), day.getDate() + endDayOffset, 0, endMin).getTime();
-      if (endMs > fromMs && startMs < toMs) out.push({ startMs, endMs, soc_percent: slot.soc_percent });
+      if (endMs > fromMs && startMs < toMs) {
+        out.push({ startMs, endMs, soc_percent: slot.soc_percent, ess_soc_percent: slot.ess_soc_percent ?? 100 });
+      }
     }
   }
 
@@ -85,6 +100,7 @@ export function expandWeeklySchedule(
   for (const o of out) {
     const last = merged[merged.length - 1];
     if (last && o.startMs <= last.endMs) {
+      last.ess_soc_percent = Math.max(last.ess_soc_percent, o.ess_soc_percent);
       if (o.endMs > last.endMs) {
         last.endMs = o.endMs;
         last.soc_percent = o.soc_percent;

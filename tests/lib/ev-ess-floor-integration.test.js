@@ -84,6 +84,27 @@ describe('weekly charging mask', () => {
   });
 });
 
+describe('home battery SoC targets and floors', () => {
+  it('stocks the battery up for a target only while power is cheaper than the penalty', () => {
+    const importPrice = [5, 5, 30, 30, 30, 30, 30, 30];
+    const cfg = { ...baseCfg, initialSoc_percent: 0, importPrice, socTargets: [{ slot: 5, soc_Wh: 4000 }] };
+    // 20 c€/kWh: the two 5 c€ slots (2 × 1000 Wh) are worth buying, the 30 c€ ones are not.
+    const cheapOnly = solve({ ...cfg, socTargetPenalty_cents_per_kWh: 20 });
+    expect(cheapOnly[5].soc_Wh).toBeCloseTo(2000, 3);
+    // 50 c€/kWh: now the target is worth 30 c€ power too.
+    const atAnyPrice = solve({ ...cfg, socTargetPenalty_cents_per_kWh: 50 });
+    expect(atAnyPrice[5].soc_Wh).toBeCloseTo(4000, 3);
+  });
+
+  it('keeps the battery at or above a floor', () => {
+    const cfg = { ...baseCfg, load_W: Array(T).fill(2000), socFloors: [{ slot: 3, soc_Wh: 4500 }] };
+    const rows = solve(cfg);
+    // Only 500 Wh may be used before the floor slot; the four slots after it use 2000 Wh.
+    expect(rows[3].soc_Wh).toBeCloseTo(4500, 3);
+    expect(rows[T - 1].soc_Wh).toBeCloseTo(2500, 3);
+  });
+});
+
 describe('home battery floor', () => {
   it('blocks grid and battery charging while the battery is below the floor', () => {
     // Battery at 20%, floor at 50%, no PV: grid→EV must wait until the battery is back at 50%.
@@ -104,6 +125,81 @@ describe('home battery floor', () => {
     }
     expect(rows[T - 1].ev_soc_percent / 100 * 60000).toBeGreaterThanOrEqual(31000 - 1e-6);
     expect(rows[0].g2ev + rows[0].b2ev).toBeCloseTo(0, 6);
+  });
+
+  it('keeps the floor and misses the target when the target is unreachable under the floor', () => {
+    // Battery stuck at 20% (it cannot charge), no PV: the EV has no permitted source, so the
+    // target cannot be met. The plan must stay solvable instead of going infeasible.
+    const cfg = {
+      ...baseCfg,
+      initialSoc_percent: 20,
+      maxChargePower_W: 0,
+      ev: { ...baseEv, essSocFloor_Wh: 5000, targets: [{ slot: T - 1, soc_Wh: 31000 }] },
+    };
+    const rows = solve(cfg);
+    for (const r of rows) expect(r.ev_charge).toBeCloseTo(0, 6);
+    expect(rows[T - 1].ev_soc_percent).toBeCloseTo(50, 6);
+  });
+
+  it('charges as far as the floor allows when the target is only partly reachable', () => {
+    // 6000 Wh in the battery, floor at 5000 Wh, no grid import:
+    // only the 1000 Wh above the floor can reach the EV, well short of the 3000 Wh target.
+    const cfg = {
+      ...baseCfg,
+      initialSoc_percent: 60,
+      maxChargePower_W: 0,
+      maxGridImport_W: 0,
+      ev: { ...baseEv, essSocFloor_Wh: 5000, targets: [{ slot: T - 1, soc_Wh: 33000 }] },
+    };
+    const rows = solve(cfg);
+    expect(rows.reduce((s, r) => s + r.b2ev, 0) * 0.25).toBeCloseTo(1000, 3);
+    for (const r of rows) expect((r.soc_percent / 100) * BAT_WH).toBeGreaterThanOrEqual(5000 - 1e-6);
+    expect((rows[T - 1].ev_soc_percent / 100) * 60000).toBeCloseTo(31000, 3);
+  });
+
+  it('lets the EV charge from the grid below the floor in slots cheaper than the battery energy', () => {
+    // Battery stuck at 20% under a 50% floor. Slots 2 and 3 cost 5, below the 8 c€ battery
+    // energy price, so the grid may feed the EV there; the 10 c€ slots stay blocked.
+    const cfg = {
+      ...baseCfg,
+      initialSoc_percent: 20,
+      maxChargePower_W: 0,
+      importPrice: [10, 10, 5, 5, 10, 10, 10, 10],
+      ev: {
+        ...baseEv,
+        essSocFloor_Wh: 5000,
+        essFloorGridPriceLimit_cents_per_kWh: 8,
+        targets: [{ slot: T - 1, soc_Wh: 33000 }],
+      },
+    };
+    const rows = solve(cfg);
+    rows.forEach((r, t) => {
+      expect(r.b2ev).toBeCloseTo(0, 6);
+      if (t !== 2 && t !== 3) expect(r.g2ev).toBeCloseTo(0, 6);
+    });
+    expect(rows[2].g2ev).toBeCloseTo(3000, 3);
+    expect(rows[3].g2ev).toBeCloseTo(3000, 3);
+  });
+
+  it('plans around fixed EV flows without deciding anything about the EV', () => {
+    // Flows fixed from outside: the target (unreachable with them) and the floor are ignored.
+    const b2ev = [0, 0, 2000, 2000, 0, 0, 0, 0];
+    const cfg = {
+      ...baseCfg,
+      initialSoc_percent: 20,
+      ev: {
+        ...baseEv,
+        essSocFloor_Wh: 5000,
+        targets: [{ slot: T - 1, soc_Wh: 50000 }],
+        fixedFlows: { g2ev: Array(T).fill(0), pv2ev: Array(T).fill(0), b2ev },
+      },
+    };
+    const rows = solve(cfg);
+    rows.forEach((r, t) => {
+      expect(r.b2ev).toBeCloseTo(b2ev[t], 6);
+      expect(r.g2ev).toBeCloseTo(0, 6);
+    });
+    expect((rows[T - 1].ev_soc_percent / 100) * 60000).toBeCloseTo(31000, 3);
   });
 
   it('still allows PV charging below the floor', () => {

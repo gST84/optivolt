@@ -30,6 +30,16 @@ describe('applyEssFloorGuard', () => {
     });
   });
 
+  it('keeps grid charging and drops only the battery share when the grid is allowed', () => {
+    expect(applyEssFloorGuard(decision(), 30, 50, true)).toEqual({
+      ...decision(),
+      ev_charge_W: 3000,
+      ev_charge_A: 13.043,
+      b2ev_W: 0,
+      ess_floor_active: true,
+    });
+  });
+
   it('leaves PV-only and off decisions untouched but flags the floor', () => {
     const pvOnly = decision({ ev_charge_mode: 'solar_only', ev_charge_W: 1500, g2ev_W: 0, b2ev_W: 0, pv2ev_W: 1500 });
     expect(applyEssFloorGuard(pvOnly, 10, 30)).toEqual({ ...pvOnly, ess_floor_active: true });

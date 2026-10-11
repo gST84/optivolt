@@ -8,6 +8,7 @@ export interface EvScheduleEntryInput {
   soc_percent?: unknown;
   endTime?: unknown;
   usage_percent?: unknown;
+  weekdays?: unknown;
 }
 
 const TYPES = new Set<EvScheduleEntryType>(['arrival', 'departure', 'target', 'trip']);
@@ -33,6 +34,21 @@ function parseOptionalPercent(raw: unknown, baseValue: number | undefined, field
 }
 
 /**
+ * Parse the optional weekly repeat with the same tri-state semantics: absent → keep the existing
+ * value, present-but-empty (null/[]) → one-off, otherwise distinct weekdays 0–6 in order.
+ */
+function parseWeekdays(raw: unknown, baseValue: number[] | undefined): number[] | undefined {
+  const value = raw !== undefined ? raw : baseValue;
+  if (value == null) return undefined;
+  if (!Array.isArray(value)) throw new HttpError(400, 'weekdays must be an array of weekdays 0–6');
+  const days = value.map(Number);
+  if (days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+    throw new HttpError(400, 'weekdays must be an array of weekdays 0–6');
+  }
+  return days.length ? [...new Set(days)].sort((a, b) => a - b) : undefined;
+}
+
+/**
  * Parse and validate the user-supplied fields of an EV schedule entry. `soc_percent` is required
  * (in [0,100]) for a target, optional for arrival/departure and unused for a trip. A trip carries
  * a required `endTime` (the arrival, strictly after `time` = the departure) and an optional
@@ -49,6 +65,8 @@ function parseEntryFields(
 
   const time = String(input.time ?? base?.time ?? '');
   const timeMs = toTimestamp(time, 'time');
+  const weekdays = parseWeekdays(input.weekdays, base?.weekdays);
+  const repeat = weekdays ? { weekdays } : {};
 
   if (type === 'trip') {
     const endTime = String(input.endTime ?? base?.endTime ?? '');
@@ -60,6 +78,7 @@ function parseEntryFields(
       time: new Date(timeMs).toISOString(),
       endTime: new Date(endMs).toISOString(),
       ...(usage_percent != null ? { usage_percent } : {}),
+      ...repeat,
     };
   }
 
@@ -74,6 +93,7 @@ function parseEntryFields(
     type,
     time: new Date(timeMs).toISOString(),
     ...(soc_percent != null ? { soc_percent } : {}),
+    ...repeat,
   };
 }
 
@@ -212,6 +232,8 @@ export function normalizeEvScheduleEntries(
   let changed = false;
   const next: EvScheduleEntry[] = [];
   for (const entry of entries) {
+    // A weekly entry is a template, not an event: it never expires.
+    if (entry.weekdays?.length) { next.push(entry); continue; }
     const timeMs = toTimestamp(entry.time, 'time');
     if (timeMs >= nowMs) { next.push(entry); continue; }
     const pluggedIn = entry.type === 'target' ? undefined : plugStateAt(timeMs);
@@ -236,4 +258,48 @@ export function normalizeEvScheduleEntries(
 
   if (!changed) return { data, changed: false, entries };
   return { data: { ...data, evScheduleEntries: next }, changed: true, entries: next };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Replace every weekly entry by its dated occurrences up to `horizonEndMs`; one-off entries pass
+ * through. An occurrence takes the time of day of the entry's `time` in the server's local time
+ * zone (a trip keeps its duration) on each of its weekdays, and gets the id `<entry id>@<start>`.
+ *
+ * Only occurrences that are still to come are produced, plus a trip that is under way (departed,
+ * not yet back): the caller runs the result through normalizeEvScheduleEntries, which turns that
+ * trip into an arrival once the car has actually left. A past arrival, departure or target
+ * occurrence is taken to have happened.
+ */
+export function expandRecurringEvEntries(entries: EvScheduleEntry[], nowMs: number, horizonEndMs: number): EvScheduleEntry[] {
+  const out: EvScheduleEntry[] = [];
+  const today = new Date(nowMs);
+  const days = Math.max(0, Math.ceil((horizonEndMs - nowMs) / DAY_MS)) + 1;
+  for (const entry of entries) {
+    if (!entry.weekdays?.length) { out.push(entry); continue; }
+    const template = new Date(entry.time);
+    const durationMs = entry.type === 'trip' && entry.endTime
+      ? new Date(entry.endTime).getTime() - template.getTime()
+      : 0;
+    const { weekdays: _weekdays, ...fields } = entry;
+    // Start far enough back to catch a trip that left on an earlier day and is still under way.
+    const lookbackDays = Math.ceil(durationMs / DAY_MS) + 1;
+    for (let k = -lookbackDays; k <= days; k++) {
+      const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() + k, template.getHours(), template.getMinutes());
+      if (!entry.weekdays.includes(start.getDay())) continue;
+      const startMs = start.getTime();
+      const endMs = startMs + durationMs;
+      const upcoming = startMs >= nowMs;
+      const underWay = entry.type === 'trip' && startMs < nowMs && endMs > nowMs;
+      if (startMs >= horizonEndMs || !(upcoming || underWay)) continue;
+      out.push({
+        ...fields,
+        id: `${entry.id}@${startMs}`,
+        time: start.toISOString(),
+        ...(entry.type === 'trip' ? { endTime: new Date(endMs).toISOString() } : {}),
+      });
+    }
+  }
+  return out;
 }

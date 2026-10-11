@@ -24,6 +24,14 @@ Still the current version; everything below has shipped under it.
 - Weekly EV charging windows (e.g. Wednesday and Sunday evening with a target
   SoC) and a home battery floor below which the EV only charges from solar,
   enforced both in the plan and live in `/ev/current`.
+- Average purchase price of the energy in the home battery, shown with the
+  energy prices chart, and a cost per planned EV charging session on the EV tab.
+- Weekly EV plans charge from the cheapest source without a deadline: from the
+  home battery down to the floor (house first), from the grid only when it is
+  cheaper than the battery's energy, with the home battery filled to a level per
+  plan at the cheapest moments beforehand.
+- EV schedule entries (trip, arrival, departure, target) can repeat weekly on
+  chosen weekdays.
 - Optional extended planning horizon of up to six extra days, using forecast
   prices beyond the published day-ahead window.
 - Periodic battery rebalancing: a scheduled window that charges the pack to

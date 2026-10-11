@@ -21,7 +21,7 @@ const base = {
   maxGridImport_W: 10000,
   chargeEfficiency_percent: 100,
 };
-const WED = [{ weekday: 3, start: '18:00', end: '07:00', soc_percent: 80 }];
+const WED = [{ weekdays: [3], start: '18:00', end: '07:00', soc_percent: 80 }];
 
 describe('buildEvConfig — weekly schedule', () => {
   it('masks charging to the weekly window and pins its target at the window end', () => {
@@ -49,9 +49,34 @@ describe('buildEvConfig — weekly schedule', () => {
 
   it('clamps the target to what the masked slots can deliver', () => {
     // A one-hour window at 3.68 kW delivers at most 3 680 Wh on top of the 24 000 Wh start.
-    const short = [{ weekday: 3, start: '18:00', end: '19:00', soc_percent: 100 }];
+    const short = [{ weekdays: [3], start: '18:00', end: '19:00', soc_percent: 100 }];
     const cfg = buildEvConfig({ ...base, evWeeklySchedule: short }, [], { pluggedIn: true, soc_percent: 40 }, NOW_MS, T);
     expect(cfg.targets[0].soc_Wh).toBeCloseTo(24000 + 4 * 3680 * 0.25, 6);
+  });
+
+  it('charges weekly plans from the cheapest source, with a home battery target before the window', () => {
+    const state = { pluggedIn: true, soc_percent: 40 };
+    const plan = [{ ...WED[0], ess_soc_percent: 90 }];
+    const cfg = buildEvConfig({ ...base, batteryCapacity_Wh: 10000, evWeeklySchedule: plan }, [], state, NOW_MS, T);
+    expect(cfg.cheapestSource).toBe(true);
+    expect(cfg.essTargets).toEqual([{ slot: slotOf(local(2026, 10, 14, 18)) - 1, soc_Wh: 9000 }]);
+    expect(buildEvConfig(base, [], state, NOW_MS, T).cheapestSource).toBeUndefined();
+  });
+
+  it('keeps deadline charging when the user entered a deadline', () => {
+    const state = { pluggedIn: true, soc_percent: 40 };
+    const departure = {
+      id: 'manual-1', type: 'departure', time: new Date(local(2026, 10, 15, 6)).toISOString(), soc_percent: 90,
+      createdAt: '', updatedAt: '',
+    };
+    expect(buildEvConfig({ ...base, evWeeklySchedule: WED }, [departure], state, NOW_MS, T).cheapestSource).toBeUndefined();
+  });
+
+  it('ignores a plan without any weekday selected', () => {
+    const inactive = [{ weekdays: [], start: '18:00', end: '07:00', soc_percent: 80 }];
+    const cfg = buildEvConfig({ ...base, evWeeklySchedule: inactive }, [], { pluggedIn: true, soc_percent: 40 }, NOW_MS, T);
+    expect(cfg.chargeAllowed).toBeUndefined();
+    expect(cfg.targets).toEqual([]);
   });
 
   it('omits the mask without a weekly schedule', () => {

@@ -190,11 +190,23 @@ Use `sensor.optivolt_ev_charge_mode` and `sensor.optivolt_ev_charge_current_a` i
 
 Two EV options cover a car that charges on fixed days.
 
-- **Weekly charging** (EV tab, `evWeeklySchedule`): a list of recurring windows,
-  each with a weekday, a start and end time and a target SoC, e.g.
-  *Wednesday 18:00 → 07:00, 80%* and *Sunday 20:00 → 07:00, 80%*. An end time at
-  or before the start time falls on the next day. Times use the server's local
-  time zone. With windows set:
+- **Weekly charging** (EV tab, `evWeeklySchedule`): a list of recurring plans,
+  each with a start and end time, a target SoC and the weekdays it applies on
+  (Mon–Sun checkboxes), e.g. *18:00 → 07:00, 80%* on Wednesday and Sunday. An
+  end time at or before the start time falls on the next day. Times use the
+  server's local time zone. A plan with no day ticked is inactive. Each plan also
+  has a home battery level to reach by the start of the window. With plans set
+  (and no manually entered deadline, trip or target in the horizon):
+  - the EV charges inside the windows only, up to the plan's SoC, with no
+    deadline: it takes home battery energy down to the home battery floor
+    (the house is served first) and grid power only when the buy price is below
+    the average purchase price of the energy in the battery plus wear;
+  - ahead of each window the home battery is filled towards the plan's level
+    at the cheapest moments (the cheapest 15% of prices in the plan, and solar);
+  - the EV charging is derived step by step from a plan without the EV rather
+    than optimised, so these plans solve in well under a second.
+
+  With a manual deadline in the horizon the plan is deadline-driven instead:
   - the EV only charges inside them, even when it is plugged in at other times;
   - each window's target becomes a SoC deadline at the window end, so the
     solver can fill the home battery during cheap hours beforehand and feed the
@@ -206,9 +218,13 @@ Two EV options cover a car that charges on fixed days.
   to 2–3 so a Monday plan already prepares for Wednesday.
 - **Home battery floor for EV** (EV settings card, `evEssSocFloor_percent`,
   0 = off): while the home battery SoC is below this value, the EV only charges
-  from solar, with no grid and no battery. The solver enforces this at both ends
-  of every slot. `/ev/current` also checks the latest measured SoC: if it is
-  below the floor, a planned grid or battery charge is downgraded to
+  from solar, with no grid and no battery. One exception: in slots where the buy
+  price is below the average purchase price of the energy in the home battery
+  plus the battery wear cost, the EV may still charge from the grid. The solver enforces this at both ends
+  of every slot. The floor wins over SoC targets: when a target cannot be
+  reached without breaking it (e.g. a tight grid import limit), the EV charges
+  as far as the floor allows and misses the target. `/ev/current` also checks
+  the latest measured SoC: if it is below the floor, a planned grid or battery charge is downgraded to
   `solar_only`, and the response carries `ess_floor_active: true`.
 
 ## Architecture & HTTP API

@@ -3,6 +3,7 @@ import {
   createEvScheduleEntry,
   updateEvScheduleEntry,
   normalizeEvScheduleEntries,
+  expandRecurringEvEntries,
   recordEvLastState,
   validateEvScheduleEntry,
 } from '../../../api/services/ev-schedule-entries.ts';
@@ -338,5 +339,59 @@ describe('validateEvScheduleEntry', () => {
 
   it('rejects a malformed entry', () => {
     expect(() => validateEvScheduleEntry({ id: '', type: 'arrival', time: FUTURE, createdAt: FUTURE, updatedAt: FUTURE })).toThrow();
+  });
+});
+
+describe('weekly entries', () => {
+  // Local-time fixtures: weekly entries repeat on the server's local weekdays.
+  const local = (y, m, d, h = 0, min = 0) => new Date(y, m - 1, d, h, min).getTime();
+  const iso = (ms) => new Date(ms).toISOString();
+  const MON_NOON = local(2026, 10, 12, 12); // a Monday
+  const WEEK_END = MON_NOON + 7 * 24 * 3600_000;
+
+  it('stores distinct weekdays in order and clears them with an empty list', () => {
+    const entry = createEvScheduleEntry({ type: 'departure', time: FUTURE, soc_percent: 80, weekdays: [5, '1', 1] }, NOW_MS);
+    expect(entry.weekdays).toEqual([1, 5]);
+    expect(updateEvScheduleEntry(entry, { soc_percent: 70 }, NOW_MS).weekdays).toEqual([1, 5]);
+    expect(updateEvScheduleEntry(entry, { weekdays: [] }, NOW_MS).weekdays).toBeUndefined();
+    expect(() => createEvScheduleEntry({ type: 'departure', time: FUTURE, weekdays: [7] }, NOW_MS)).toThrow('weekdays');
+  });
+
+  it('is never pruned, whatever its template time', () => {
+    const entry = createEvScheduleEntry({ type: 'target', time: PAST, soc_percent: 80, weekdays: [1] }, NOW_MS);
+    const result = normalizeEvScheduleEntries({ evScheduleEntries: [entry] }, NOW_MS);
+    expect(result.changed).toBe(false);
+    expect(result.entries).toEqual([entry]);
+  });
+
+  it('expands into dated occurrences on its weekdays, upcoming ones only', () => {
+    const entry = {
+      id: 'e1', type: 'departure', time: iso(local(2020, 1, 1, 7, 30)), soc_percent: 80, weekdays: [1, 3],
+      createdAt: iso(0), updatedAt: iso(0),
+    };
+    const oneOff = { id: 'x', type: 'arrival', time: iso(MON_NOON + 3600_000), createdAt: iso(0), updatedAt: iso(0) };
+    const out = expandRecurringEvEntries([entry, oneOff], MON_NOON, WEEK_END);
+    // Monday 07:30 has passed at Monday noon: Wednesday, then next Monday.
+    const wed = local(2026, 10, 14, 7, 30);
+    const nextMon = local(2026, 10, 19, 7, 30);
+    expect(out).toEqual([
+      { id: `e1@${wed}`, type: 'departure', time: iso(wed), soc_percent: 80, createdAt: iso(0), updatedAt: iso(0) },
+      { id: `e1@${nextMon}`, type: 'departure', time: iso(nextMon), soc_percent: 80, createdAt: iso(0), updatedAt: iso(0) },
+      oneOff,
+    ]);
+  });
+
+  it('keeps a weekly trip its duration and includes one that is under way', () => {
+    const trip = {
+      id: 't1', type: 'trip', time: iso(local(2020, 1, 1, 8)), endTime: iso(local(2020, 1, 1, 17)), usage_percent: 30,
+      weekdays: [1], createdAt: iso(0), updatedAt: iso(0),
+    };
+    const out = expandRecurringEvEntries([trip], MON_NOON, WEEK_END);
+    expect(out.map((e) => [e.time, e.endTime])).toEqual([
+      [iso(local(2026, 10, 12, 8)), iso(local(2026, 10, 12, 17))], // left this morning, back at 17:00
+      [iso(local(2026, 10, 19, 8)), iso(local(2026, 10, 19, 17))],
+    ]);
+    expect(out[0].usage_percent).toBe(30);
+    expect(out[0].weekdays).toBeUndefined();
   });
 });

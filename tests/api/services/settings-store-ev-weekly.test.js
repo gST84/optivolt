@@ -39,7 +39,7 @@ describe('settings-store — weekly EV schedule and ESS floor', () => {
       evEssSocFloor_percent: 140,
     });
     const persisted = JSON.parse(await readFile(path.join(tmpDir, 'settings.json'), 'utf8'));
-    expect(persisted.evWeeklySchedule).toEqual([{ weekday: 0, start: '20:00', end: '07:00', soc_percent: 70 }]);
+    expect(persisted.evWeeklySchedule).toEqual([{ weekdays: [0], start: '20:00', end: '07:00', soc_percent: 70, ess_soc_percent: 100 }]);
     expect(persisted.evEssSocFloor_percent).toBe(100);
   });
 

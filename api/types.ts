@@ -68,16 +68,18 @@ export interface Settings {
   priceForecastUrl: string;
 }
 
-/** One recurring weekly EV charging window, in the server's local time. */
+/** One recurring EV charging plan (a time window on selected weekdays), in the server's local time. */
 export interface EvWeeklyScheduleSlot {
-  /** Day the window starts on: 0 = Sunday … 6 = Saturday (JS Date#getDay). */
-  weekday: number;
+  /** Days the window starts on: 0 = Sunday … 6 = Saturday (JS Date#getDay). Empty = inactive. */
+  weekdays: number[];
   /** Window start, "HH:MM" (24 h). */
   start: string;
   /** Window end, "HH:MM"; at or before `start` means the next day. */
   end: string;
-  /** SoC the EV must reach by the end of the window, in %. */
+  /** SoC the EV charges up to in the window, in % (a ceiling, not a deadline). */
   soc_percent: number;
+  /** SoC the home battery should have when the window starts, in %, so it can feed the EV. */
+  ess_soc_percent: number;
 }
 
 // ----------------------------- Persisted data ---------------------------
@@ -119,6 +121,12 @@ export interface EvScheduleEntry {
   endTime?: string;
   /** Trip only: estimated share of the EV battery consumed by the trip, in [0, 100]. */
   usage_percent?: number;
+  /**
+   * Weekly repeat: the weekdays (0 = Sunday … 6 = Saturday, server local time) the entry happens
+   * on. When set, only the time of day of `time` counts (and for a trip its duration); the entry
+   * is never pruned and is expanded into dated occurrences for every plan. Absent = one-off.
+   */
+  weekdays?: number[];
   createdAt: string;
   updatedAt: string;
 }

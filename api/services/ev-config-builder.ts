@@ -75,8 +75,10 @@ export function buildEvConfig(
   const toBoundary = (time: string) => Math.max(1, toSlot(time));
 
   // --- Weekly schedule: transient entries + charging mask ---
-  const weekly = settings.evWeeklySchedule ?? [];
+  // A plan with no weekday selected is inactive and must not restrict charging.
+  const weekly = (settings.evWeeklySchedule ?? []).filter((s) => s.weekdays.length > 0);
   let chargeAllowed: boolean[] | undefined;
+  const essTargets: { slot: number; soc_Wh: number }[] = [];
   let allEntries = entries ?? [];
   if (weekly.length > 0) {
     const horizonEndMs = nowMs + T * settings.stepSize_m * 60_000;
@@ -87,8 +89,17 @@ export function buildEvConfig(
       const from = toSlot(new Date(o.startMs).toISOString());
       const to = Math.min(T, toSlot(new Date(o.endMs).toISOString()));
       for (let t = from; t < to; t++) chargeAllowed[t] = true;
+      // The home battery should be stocked by the time the window opens.
+      if (from >= 1 && from < T) {
+        essTargets.push({ slot: from - 1, soc_Wh: (o.ess_soc_percent / 100) * settings.batteryCapacity_Wh });
+      }
     }
   }
+  // A deadline the user entered (target, trip, departure with a SoC) keeps the whole plan
+  // deadline-driven so that trip is not missed; weekly plans alone charge from the cheapest source.
+  const hasManualDeadline = (entries ?? []).some((e) =>
+    e.type === 'target' || e.type === 'trip' || (e.type === 'departure' && Number.isFinite(e.soc_percent)));
+  const cheapestSource = weekly.length > 0 && !hasManualDeadline;
 
   // --- Map entries to open/close events and deadline requests (skipping beyond-horizon ones) ---
   type SweepEvent = { slot: number; kind: 'open' | 'close'; soc_percent?: number; drop_percent?: number };
@@ -293,6 +304,7 @@ export function buildEvConfig(
     availabilityWindows: windows,
     targets: dedupedTargets,
     ...(chargeAllowed ? { chargeAllowed } : {}),
+    ...(cheapestSource ? { cheapestSource, essTargets } : {}),
     ...(essFloor_percent > 0 ? { essSocFloor_Wh: (essFloor_percent / 100) * settings.batteryCapacity_Wh } : {}),
   };
 }

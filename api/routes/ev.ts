@@ -104,6 +104,7 @@ router.get('/current', async (_req: Request, res: Response, next: NextFunction) 
       console.warn('[ev/current] could not read settings/data for the ESS floor guard:', (err as Error).message);
     }
 
+    const gridPriceLimit = plan.cfg?.ev?.essFloorGridPriceLimit_cents_per_kWh;
     const decision = applyEssFloorGuard({
       ev_charge_W: row.ev_charge,
       ev_charge_A: row.ev_charge_A,
@@ -111,7 +112,7 @@ router.get('/current', async (_req: Request, res: Response, next: NextFunction) 
       g2ev_W: row.g2ev,
       pv2ev_W: row.pv2ev,
       b2ev_W: row.b2ev,
-    }, essSoc_percent, floor_percent);
+    }, essSoc_percent, floor_percent, gridPriceLimit != null && row.ic < gridPriceLimit);
 
     res.json({
       timestampMs: row.timestampMs,
