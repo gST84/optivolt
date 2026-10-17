@@ -23,43 +23,17 @@ export function initEvPanelToggles(els) {
   });
 }
 
-const WEEKLY_LOOKAHEAD_DAYS = 8; // longer than any plan horizon
-
-/**
- * Dated occurrences of the weekly entries for the days ahead (the browser's local weekdays, as
- * the server does with its own), so they are annotated on the charts like one-off entries.
- */
-function expandWeeklyEntries(entries, nowMs) {
-  const out = [];
-  const today = new Date(nowMs);
-  for (const e of entries) {
-    if (!Array.isArray(e.weekdays) || e.weekdays.length === 0) { out.push(e); continue; }
-    const template = new Date(e.time);
-    const durationMs = e.endTime ? new Date(e.endTime).getTime() - template.getTime() : 0;
-    for (let k = -1; k <= WEEKLY_LOOKAHEAD_DAYS; k++) {
-      const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() + k, template.getHours(), template.getMinutes());
-      if (!e.weekdays.includes(start.getDay()) || start.getTime() + durationMs < nowMs) continue;
-      out.push({
-        ...e,
-        time: start.toISOString(),
-        ...(e.endTime ? { endTime: new Date(start.getTime() + durationMs).toISOString() } : {}),
-      });
-    }
-  }
-  return out;
-}
-
 /**
  * Derive the chart/table annotation inputs from the EV schedule entries: arrival and departure
  * times (multiple possible) and the away spans of trips. SoC deadlines are not derived here —
  * the solver resolves them (clamped to what is reachable, de-duped per slot) and the plan rows
  * carry the result as `ev_target_soc_percent`.
  */
-export function collectEvSettings(entries = [], nowMs = Date.now()) {
+export function collectEvSettings(entries = []) {
   const arrivals = [];
   const departures = [];
   const trips = [];
-  for (const e of expandWeeklyEntries(entries, nowMs)) {
+  for (const e of entries) {
     if (e.type === 'arrival') {
       arrivals.push(e.time);
     } else if (e.type === 'departure') {

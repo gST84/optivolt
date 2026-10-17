@@ -121,12 +121,6 @@ export interface EvScheduleEntry {
   endTime?: string;
   /** Trip only: estimated share of the EV battery consumed by the trip, in [0, 100]. */
   usage_percent?: number;
-  /**
-   * Weekly repeat: the weekdays (0 = Sunday … 6 = Saturday, server local time) the entry happens
-   * on. When set, only the time of day of `time` counts (and for a trip its duration); the entry
-   * is never pruned and is expanded into dated occurrences for every plan. Absent = one-off.
-   */
-  weekdays?: number[];
   createdAt: string;
   updatedAt: string;
 }

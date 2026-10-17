@@ -208,7 +208,7 @@ const sharedCrosshairPlugin = {
     let timeMs = sharedCrosshair.timeMs;
     if (type === "mouseout") {
       timeMs = null;
-    } else if (type === "mousemove" && args.inChartArea) {
+    } else if ((type === "mousemove" || type === "touchstart" || type === "touchmove") && args.inChartArea) {
       const idx = Math.round(chart.scales.x.getValueForPixel(x));
       timeMs = times[Math.max(0, Math.min(times.length - 1, idx))];
     } else {
@@ -329,6 +329,37 @@ export function refreshAllChartThemes() {
 
 if (typeof window !== "undefined") {
   window.addEventListener("optivolt:themechange", refreshAllChartThemes);
+}
+
+/**
+ * Clear the hover state (tooltip, highlighted bars, shared crosshair) of every chart except
+ * `except`. On a touch screen a tap leaves the tooltip up, as there is no "mouse leaves" to
+ * clear it; this is what takes it down again.
+ */
+function dismissChartHighlights(except) {
+  for (const chart of getRenderedCharts()) {
+    if (chart === except) continue;
+    const active = chart.getActiveElements?.().length || chart.tooltip?.getActiveElements?.().length;
+    if (!active) continue;
+    chart.setActiveElements([]);
+    chart.tooltip?.setActiveElements([], { x: 0, y: 0 });
+    chart.update("none");
+  }
+  if (!except && sharedCrosshair.timeMs != null) {
+    sharedCrosshair.timeMs = null;
+    repaintCrosshair(null);
+  }
+}
+
+if (typeof document !== "undefined") {
+  // A tap or click anywhere but on a chart closes the open tooltips; one on a chart closes the
+  // others. Scrolling closes them too, so a tooltip never rides along over unrelated content.
+  document.addEventListener("pointerdown", (event) => {
+    const target = event.target instanceof HTMLCanvasElement ? event.target : null;
+    const hit = target ? (target._chart ?? (typeof Chart !== "undefined" ? Chart.getChart?.(target) : null) ?? null) : null;
+    dismissChartHighlights(hit);
+  }, { passive: true });
+  window.addEventListener("scroll", () => dismissChartHighlights(null), { passive: true, capture: true });
 }
 
 /**

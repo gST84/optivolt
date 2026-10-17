@@ -120,7 +120,6 @@ export function getElements() {
     evEntryEndHorizon: $("#ev-entry-end-horizon"),
     evEntrySoc: $("#ev-entry-soc"),
     evEntryTripHint: $("#ev-entry-trip-hint"),
-    evEntryWeekdays: $("#ev-entry-weekdays"),
     evEntryPresets: $("#ev-entry-presets"),
     evEntrySocLabel: $("#ev-entry-soc-label"),
     evEntryError: $("#ev-entry-error"),

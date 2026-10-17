@@ -26,19 +26,6 @@ const TYPE_INACTIVE = ["text-slate-500", "dark:text-slate-400"];
 
 const DEFAULT_TRIP_BUFFER_PERCENT = 20;
 
-// Weekly repeat. Display order Monday-first; values follow JS Date#getDay (0 = Sunday).
-const WEEKDAYS = [
-  { value: 1, label: "Mon" },
-  { value: 2, label: "Tue" },
-  { value: 3, label: "Wed" },
-  { value: 4, label: "Thu" },
-  { value: 5, label: "Fri" },
-  { value: 6, label: "Sat" },
-  { value: 0, label: "Sun" },
-];
-const isWeekly = (entry) => Array.isArray(entry?.weekdays) && entry.weekdays.length > 0;
-const weekdayLabels = (entry) => WEEKDAYS.filter((d) => entry.weekdays.includes(d.value)).map((d) => d.label).join(", ");
-
 const DEFAULT_STEP_M = 15;
 const fmtEntryTime = new Intl.DateTimeFormat([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 const fmtEntryTimeShort = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -133,22 +120,8 @@ export function createEvScheduleController({ els, getPlanRows = () => [], onChan
     renderList();
   }
 
-  // One-off entries in time order, then the weekly ones.
   function sortedEntries() {
-    return [...entries].sort((a, b) =>
-      (isWeekly(a) - isWeekly(b)) || (new Date(a.time).getTime() - new Date(b.time).getTime()));
-  }
-
-  // "Mon, Wed 07:30" / "Mon, Wed 08:00 → 17:00" (a later-day return shows "+1d").
-  function fmtWeeklySpan(entry) {
-    const start = new Date(entry.time);
-    let label = `${weekdayLabels(entry)} ${fmtEntryTimeShort.format(start)}`;
-    if (entry.type === "trip" && entry.endTime) {
-      const end = new Date(entry.endTime);
-      const dayShift = Math.round((new Date(end).setHours(0, 0, 0, 0) - new Date(start).setHours(0, 0, 0, 0)) / 86_400_000);
-      label += ` → ${fmtEntryTimeShort.format(end)}${dayShift > 0 ? ` +${dayShift}d` : ""}`;
-    }
-    return label;
+    return [...entries].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
   }
 
   // "Jun 17 12:45 → 18:00" (same-day arrival shows time only).
@@ -175,12 +148,9 @@ export function createEvScheduleController({ els, getPlanRows = () => [], onChan
     const nowMs = Date.now();
     list.innerHTML = sorted.map((e) => {
       const isTrip = e.type === "trip";
-      const weekly = isWeekly(e);
-      const label = weekly
-        ? escapeHtml(fmtWeeklySpan(e))
-        : isTrip
-          ? escapeHtml(fmtTripSpan(e))
-          : escapeHtml(fmtEntryTime.format(new Date(e.time)));
+      const label = isTrip
+        ? escapeHtml(fmtTripSpan(e))
+        : escapeHtml(fmtEntryTime.format(new Date(e.time)));
       let extras = "";
       if (isTrip && Number.isFinite(e.usage_percent)) {
         extras += `<span class="ml-2 font-mono text-xs text-slate-400 dark:text-slate-500" title="Estimated trip usage">−${e.usage_percent}%</span>`;
@@ -190,9 +160,7 @@ export function createEvScheduleController({ els, getPlanRows = () => [], onChan
       }
       // A departure/trip whose departure time passed but that the server still keeps means the
       // car is still plugged in: it keeps charging toward its target until it actually leaves.
-      if (weekly) {
-        extras += `<span class="ml-1.5 inline-block rounded px-1 py-0.5 text-[9px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300" title="Repeats every week">weekly</span>`;
-      } else if ((isTrip || e.type === "departure") && new Date(e.time).getTime() < nowMs) {
+      if ((isTrip || e.type === "departure") && new Date(e.time).getTime() < nowMs) {
         extras += `<span class="ml-1.5 inline-block rounded px-1 py-0.5 text-[9px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400" title="Departure time has passed but the car is still connected">overdue</span>`;
       }
       return `<li data-entry-id="${escapeHtml(e.id)}" class="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 dark:border-white/10 dark:bg-slate-800/50">
@@ -400,7 +368,6 @@ export function createEvScheduleController({ els, getPlanRows = () => [], onChan
       els.evEntrySoc.value = Number.isFinite(value) ? String(value) : "";
     }
     namingPreset = false;
-    for (const box of weekdayBoxes()) box.checked = isWeekly(entry) && entry.weekdays.includes(Number(box.value));
     if (els.evEntryDelete) els.evEntryDelete.classList.toggle("hidden", !entry);
     for (const input of [els.evEntryTime, els.evEntryEndTime]) {
       if (input) input.step = String(slotMs() / 1000);
@@ -415,26 +382,9 @@ export function createEvScheduleController({ els, getPlanRows = () => [], onChan
     if (els.evEntryEditor) els.evEntryEditor.classList.add("hidden");
   }
 
-  const weekdayBoxes = () => [...(els.evEntryWeekdays?.querySelectorAll("input[type=checkbox]") ?? [])];
-
-  function renderWeekdayBoxes() {
-    if (!els.evEntryWeekdays) return;
-    els.evEntryWeekdays.replaceChildren(...WEEKDAYS.map((d) => {
-      const label = document.createElement("label");
-      label.className = "inline-flex items-center gap-1 text-xs";
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.value = String(d.value);
-      label.append(box, d.label);
-      return label;
-    }));
-  }
-
   function readPayload() {
     if (!draft) return null;
     const type = draft.type;
-    // Always sent (empty when nothing is ticked) so an edit can turn a weekly entry back into a one-off.
-    const weekdays = weekdayBoxes().filter((box) => box.checked).map((box) => Number(box.value));
     const time = fromDatetimeLocal(els.evEntryTime?.value ?? "");
     if (!time) { showError(type === "trip" ? "Pick a valid departure date and time." : "Pick a valid date and time."); return null; }
     const socRaw = els.evEntrySoc?.value ?? "";
@@ -461,10 +411,10 @@ export function createEvScheduleController({ els, getPlanRows = () => [], onChan
       }
       const endMs = snappedTripEndMs(time, endTime);
       // Always send usage_percent (null when cleared) so an edit can remove a previously-set value.
-      return { type, time, endTime: new Date(endMs).toISOString(), usage_percent: soc_percent ?? null, weekdays };
+      return { type, time, endTime: new Date(endMs).toISOString(), usage_percent: soc_percent ?? null };
     }
     // Always send soc_percent (null when cleared) so an edit can remove a previously-set value.
-    return { type, time, soc_percent: soc_percent ?? null, weekdays };
+    return { type, time, soc_percent: soc_percent ?? null };
   }
 
   async function saveEntry() {
@@ -501,7 +451,6 @@ export function createEvScheduleController({ els, getPlanRows = () => [], onChan
   }
 
   function wireEditor() {
-    renderWeekdayBoxes();
     wireTripPresets();
     void loadTripPresets();
     els.evEntryAdd?.addEventListener("click", () => openEditor(null));

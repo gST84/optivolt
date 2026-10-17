@@ -1,7 +1,6 @@
 import { HttpError } from '../http-errors.ts';
 import { extractWindow, extendSeriesWithForecast, getForecastTimeRange, getQuarterStart } from '../../lib/time-series-utils.ts';
 import { buildEvConfig } from './ev-config-builder.ts';
-import { expandRecurringEvEntries, normalizeEvScheduleEntries } from './ev-schedule-entries.ts';
 import type { SolverConfig, TimeSeries } from '../../lib/types.ts';
 import type { Settings, Data } from '../types.ts';
 
@@ -148,16 +147,7 @@ export function buildSolverConfigFromSettings(
     // callers that want to cap the start range.
   }
 
-  // Weekly entries become dated ones for this horizon; a weekly trip that is under way goes
-  // through the same plug-state rules as a one-off trip. One-off entries were normalized (and
-  // persisted) by the caller and are passed on as they are.
-  const storedEntries = data.evScheduleEntries ?? [];
-  const weeklyOccurrences = expandRecurringEvEntries(storedEntries.filter((e) => e.weekdays?.length), nowMs, alignedEndMs);
-  const evEntries = [
-    ...storedEntries.filter((e) => !e.weekdays?.length),
-    ...normalizeEvScheduleEntries({ ...data, evScheduleEntries: weeklyOccurrences }, nowMs, evState).entries,
-  ];
-  const ev = buildEvConfig(settings, evEntries, evState, nowMs, base.load_W.length, {
+  const ev = buildEvConfig(settings, data.evScheduleEntries ?? [], evState, nowMs, base.load_W.length, {
     essSoc_percent: data.soc?.value,
   });
   if (ev) base.ev = ev;
