@@ -205,7 +205,7 @@ const sharedCrosshairPlugin = {
     const times = crosshairTimestamps(chart);
     if (!times?.length) return;
     const { type, x } = args.event;
-    let timeMs = sharedCrosshair.timeMs;
+    let timeMs;
     if (type === "mouseout") {
       timeMs = null;
     } else if ((type === "mousemove" || type === "touchstart" || type === "touchmove") && args.inChartArea) {
