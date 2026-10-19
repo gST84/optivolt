@@ -15,7 +15,7 @@ const NUMERIC_FIELDS: (keyof Settings)[] = [
   'maxChargePower_W', 'maxDischargePower_W',
   'maxGridImport_W', 'maxGridExport_W', 'chargeEfficiency_percent',
   'dischargeEfficiency_percent', 'batteryCost_cent_per_kWh', 'idleDrain_W',
-  'terminalSocCustomPrice_cents_per_kWh', 'rebalanceHoldHours',
+  'terminalSocCustomPrice_cents_per_kWh', 'rebalanceHoldHours', 'rebalanceEveryWeeks',
   'evMinChargeCurrent_A', 'evMaxChargeCurrent_A', 'evBatteryCapacity_kWh',
   'evChargeEfficiency_percent', 'evMaxSoc_percent', 'evSocValue_cents_per_kWh',
   'evTripSocBuffer_percent', 'evEssSocFloor_percent',
@@ -131,6 +131,9 @@ function validateSettings(s: Settings): Settings {
 
   // Trip buffer is a SoC share on top of the trip usage; clamp to a sane [0, 100].
   s.evTripSocBuffer_percent = Math.max(0, Math.min(100, s.evTripSocBuffer_percent));
+
+  // Automatic rebalancing interval: whole weeks, 0 (off) to a year.
+  s.rebalanceEveryWeeks = Math.max(0, Math.min(52, Math.round(s.rebalanceEveryWeeks)));
 
   // Home-battery floor for non-PV EV charging; clamp to [0, 100] (0 = disabled).
   s.evEssSocFloor_percent = Math.max(0, Math.min(100, s.evEssSocFloor_percent));

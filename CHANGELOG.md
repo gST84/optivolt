@@ -26,6 +26,8 @@ Still the current version; everything below has shipped under it.
   enforced both in the plan and live in `/ev/current`.
 - Average purchase price of the energy in the home battery, shown with the
   energy prices chart, and a cost per planned EV charging session on the EV tab.
+- Automatic battery rebalancing every N weeks; the solver picks the cheapest
+  moment from three days before to three days after the due date.
 - Weekly EV plans charge from the cheapest source without a deadline: from the
   home battery down to the floor (house first), from the grid only when it is
   cheaper than the battery's energy, with the home battery filled to a level per

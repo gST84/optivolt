@@ -165,6 +165,13 @@
               <span class="toggle-knob"></span>
               <span class="text-sm text-slate-600 dark:text-slate-400">Schedule battery rebalancing</span>
             </label>
+            <label class="mt-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+              Automatically every
+              <input id="rebalance-every-weeks" type="number" min="0" max="52" step="1"
+                class="form-input !mt-0 w-16" data-settings-input />
+              weeks <span class="text-xs text-slate-400 dark:text-slate-500">(0 = off)</span>
+            </label>
+            <p id="rebalance-next" class="hidden mt-1 text-xs text-slate-500 dark:text-slate-400"></p>
             <p id="rebalance-nudge"
               class="hidden mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200">
               Battery has not reached 100% recently. Consider scheduling battery rebalancing.
