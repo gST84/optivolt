@@ -98,6 +98,13 @@ export function getElements() {
     evSocValuation: $("#ev-soc-valuation"),
     evMaxSoc: $("#ev-max-soc"),
     evTripSocBuffer: $("#ev-trip-soc-buffer"),
+    evEssSocFloor: $("#ev-ess-soc-floor"),
+    evWeeklyCheapestSource: $("#ev-weekly-cheapest-source"),
+    // Weekly charging windows
+    evWeeklySchedule: $("#ev-weekly-schedule"),
+    evWeeklyList: $("#ev-weekly-list"),
+    evWeeklyEmpty: $("#ev-weekly-empty"),
+    evWeeklyAdd: $("#ev-weekly-add"),
     // EV schedule entries (list + inline editor)
     evScheduleEntriesList: $("#ev-schedule-entries-list"),
     evScheduleEntriesCount: $("#ev-schedule-entries-count"),

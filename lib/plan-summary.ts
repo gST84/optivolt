@@ -156,9 +156,9 @@ export function buildPlanSummary(
 
 /**
  * Split the planned EV charging into sessions and cost each one. A session is a stretch of
- * consecutive slots in which the EV may charge (inside an availability window), so a night
- * with a pause during expensive hours is still one session. Without an EV config a session is
- * a run of consecutive charging slots.
+ * consecutive slots in which the EV may charge (inside an availability window and the weekly
+ * mask), so a night with a pause during expensive hours is still one session. Without an EV
+ * config a session is a run of consecutive charging slots.
  *
  * Battery energy is costed at the battery energy price going into the slot, divided by the
  * discharge efficiency (the battery gives up more than the EV receives).
@@ -177,6 +177,7 @@ function buildEvSessions(
     for (const w of ev.availabilityWindows) {
       for (let t = Math.max(0, w.startSlot); t < Math.min(T, w.endSlot); t++) mayCharge[t] = true;
     }
+    if (ev.chargeAllowed) for (let t = 0; t < T; t++) if (ev.chargeAllowed[t] === false) mayCharge[t] = false;
   } else {
     mayCharge = rows.map((r) => (r.ev_charge ?? 0) > 0);
   }

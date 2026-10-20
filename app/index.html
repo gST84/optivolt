@@ -876,6 +876,14 @@
                 </span>
               </label>
             </div>
+            <label class="block text-sm">Home battery floor for EV (%)
+              <input id="ev-ess-soc-floor" type="number" min="0" max="100" step="1"
+                class="form-input" data-settings-input />
+              <span class="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                Below this home battery SoC the EV only charges from solar (no battery, and no grid
+                unless the grid is cheaper than the energy in the battery plus battery wear). 0 = off.
+              </span>
+            </label>
             <label class="block text-sm">SoC sensor entity ID
               <input id="ev-soc-sensor" type="text" placeholder="sensor.ev_battery_level"
                 class="form-input font-mono text-xs" data-no-autosolve data-settings-input />
@@ -1019,6 +1027,36 @@
                 </div>
               </div>
             </div>
+          </div>
+
+          <!-- Weekly charging: recurring plans, stored as JSON in a hidden settings input -->
+          <div class="rounded-lg border border-slate-200/70 dark:border-white/10 p-3">
+            <div class="mb-2 flex items-center justify-between">
+              <span class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Weekly charging</span>
+              <button id="ev-weekly-add" type="button"
+                class="text-xs font-medium text-sky-600 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300">+ Add plan</button>
+            </div>
+            <input id="ev-weekly-schedule" type="hidden" data-settings-input />
+            <ul id="ev-weekly-list" class="space-y-2"></ul>
+            <p id="ev-weekly-empty" class="text-xs text-slate-500 dark:text-slate-400">
+              No weekly plans: the EV may charge whenever it is plugged in.
+            </p>
+            <label class="toggle mt-3">
+              <input id="ev-weekly-cheapest-source" type="checkbox" data-settings-input>
+              <span class="toggle-knob"></span>
+              <span class="text-sm">Charge from the cheapest source (no deadline)</span>
+            </label>
+            <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Each plan is a time window repeated on the ticked days (an end before the start is the
+              next day). The EV only charges inside the windows. Normally the plan's EV SoC is a
+              deadline at the window end. With the cheapest source on, there is no deadline: the EV
+              charges from the home battery, down to the home battery floor and up to the EV limit,
+              with the house served first, and takes grid power only when that is cheaper than the
+              energy in the battery plus wear; beforehand the home battery is filled to the plan's
+              level at the cheapest moments. This suits a home battery that is large compared to the
+              household use until the next cheap period. Use an extra horizon of a few days so the
+              plan can look ahead.
+            </p>
           </div>
 
           <label class="block text-sm">

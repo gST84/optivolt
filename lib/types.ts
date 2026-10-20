@@ -47,6 +47,12 @@ export interface EvSocTarget {
   soc_Wh: number;
 }
 
+/** A home battery SoC level at the end of a slot. */
+export interface SocLevel {
+  slot: number;
+  soc_Wh: number;
+}
+
 export interface EvConfig {
   evMinChargePower_W: number;
   evMaxChargePower_W: number;
@@ -60,6 +66,38 @@ export interface EvConfig {
   availabilityWindows: EvAvailabilityWindow[];
   /** SoC deadlines layered onto the plan. Empty means no enforced target (latent charging only). */
   targets: EvSocTarget[];
+  /**
+   * Optional per-slot charging permission (length T), e.g. from a recurring weekly charging
+   * schedule. A slot marked false cannot charge even inside an availability window; the SoC
+   * chain is unaffected. Absent = every slot inside a window may charge.
+   */
+  chargeAllowed?: boolean[];
+  /**
+   * Home battery SoC floor in Wh. While the home battery is below it, the EV may only charge from
+   * PV (no grid, no battery). Enforced on both the start- and end-of-slot battery SoC.
+   * Absent or 0 = disabled.
+   */
+  essSocFloor_Wh?: number;
+  /**
+   * Exception to the floor: in slots where the import price is below this value (the average
+   * purchase price of the energy in the home battery plus battery wear) the EV may charge from
+   * the grid even while the battery is below the floor. Battery → EV stays blocked. Absent = no exception.
+   */
+  essFloorGridPriceLimit_cents_per_kWh?: number;
+  /**
+   * Cheapest-source charging (weekly plans): targets are not deadlines but a ceiling. The EV
+   * charging is not optimised but derived from a plan solved without the EV, slot by slot: from
+   * the grid when it is cheaper than `essFloorGridPriceLimit_cents_per_kWh`, otherwise from the
+   * home battery down to the floor, the house always served first. See lib/ev-cheapest-source.ts.
+   */
+  cheapestSource?: boolean;
+  /**
+   * Home battery SoC to aim for at the end of given slots (the slot before a weekly charging
+   * window starts), so the battery is stocked at the cheapest moments before the EV draws on it.
+   */
+  essTargets?: SocLevel[];
+  /** EV flows decided outside the solver (W per slot); when set the solver only plans around them. */
+  fixedFlows?: { g2ev: number[]; pv2ev: number[]; b2ev: number[] };
 }
 
 /**
@@ -102,6 +140,16 @@ export interface SolverConfig {
 
   // EV charging (optional — only present when evEnabled is true and EV is plugged in)
   ev?: EvConfig;
+
+  /** Home battery SoC to aim for at the end of given slots; missing it is penalised, not infeasible. */
+  socTargets?: SocLevel[];
+  /**
+   * Penalty per kWh short of a SoC target. It is the most the solver will pay (losses included)
+   * to store a kWh for the target, so it decides which moments count as cheap enough.
+   */
+  socTargetPenalty_cents_per_kWh?: number;
+  /** Hard lower bounds on the home battery SoC at the end of given slots. */
+  socFloors?: SocLevel[];
 }
 
 export interface RebalanceConfig {
