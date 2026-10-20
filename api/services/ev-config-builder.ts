@@ -1,3 +1,4 @@
+import { predictTripUsage, type EvUsagePrediction } from '../../lib/ev-trip-usage.ts';
 import type { EvConfig, EvSocTarget } from '../../lib/types.ts';
 import type { EvScheduleEntry, Settings } from '../types.ts';
 import { expandWeeklySchedule, weeklyScheduleEntries } from './ev-weekly-schedule.ts';
@@ -5,6 +6,12 @@ import { expandWeeklySchedule, weeklyScheduleEntries } from './ev-weekly-schedul
 export interface BuildEvConfigOptions {
   /** Current home battery SoC (%), used to estimate when the ESS floor stops blocking grid charging. */
   essSoc_percent?: number;
+  /** Trip usage learned from the EV's history; arrivals without their own SoC subtract it. */
+  usagePrediction?: EvUsagePrediction | null;
+  /** Last SoC seen while plugged in (data.evLastState), for a trip that is under way now. */
+  lastPluggedSoc_percent?: number | null;
+  /** When the car was seen unplugged (data.evLastState), the departure of a trip under way now. */
+  unpluggedAtMs?: number | null;
 }
 
 /**
@@ -195,11 +202,30 @@ export function buildEvConfig(
   let open: Omit<Window, 'endSlot'> | null = pluggedIn
     ? { startSlot: 0, resetSoc_Wh: initialWh }
     : null;
+  // An arrival without its own SoC is a trip return when the usage can be predicted from the
+  // EV's history: the SoC at departure minus the usage of a trip leaving at that time. For the
+  // trip under way now, what the sensor already shows as used is taken off the prediction.
+  let lastDepartureSlot: number | null = null;
+  const predictedDrop_percent = (): number | null => {
+    const departMs = lastDepartureSlot != null
+      ? nowMs + lastDepartureSlot * settings.stepSize_m * 60_000
+      : (opts.unpluggedAtMs ?? nowMs);
+    let usage = predictTripUsage(opts.usagePrediction, departMs);
+    if (usage != null && lastDepartureSlot == null) {
+      const before = opts.lastPluggedSoc_percent;
+      const current = evState?.soc_percent;
+      if (before != null && Number.isFinite(before) && current != null && Number.isFinite(current)) {
+        usage = Math.max(0, usage - Math.max(0, before - current));
+      }
+    }
+    return usage;
+  };
   for (const ev of events) {
     if (ev.kind === 'open') {
       if (open != null) continue; // already available → arrival is a no-op
-      if (ev.drop_percent != null) {
-        const dropWh = socToWh(ev.drop_percent);
+      const drop_percent = ev.drop_percent ?? (Number.isFinite(ev.soc_percent) ? null : predictedDrop_percent());
+      if (drop_percent != null) {
+        const dropWh = socToWh(drop_percent);
         open = { startSlot: ev.slot, ...(dropWh > 0 ? { drop_Wh: dropWh } : {}) };
       } else {
         const resetWh = Number.isFinite(ev.soc_percent) ? socToWh(ev.soc_percent as number) : fallbackResetWh;
@@ -209,6 +235,7 @@ export function buildEvConfig(
       if (open == null) continue; // already away → departure is a no-op
       if (ev.slot > open.startSlot) windows.push({ ...open, endSlot: ev.slot });
       open = null;
+      lastDepartureSlot = ev.slot;
     }
   }
   if (open != null && T > open.startSlot) windows.push({ ...open, endSlot: T });

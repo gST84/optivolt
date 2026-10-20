@@ -70,6 +70,11 @@ export interface Settings {
    * wear. Off = each plan's SoC is a deadline at the window end.
    */
   evWeeklyCheapestSource: boolean;
+  /**
+   * Learn how much of the EV battery a trip uses from the SoC and plug sensors' history in Home
+   * Assistant, and subtract it at every arrival without its own SoC.
+   */
+  evPredictTripUsage: boolean;
   /** Extra planning days beyond the standard day-ahead window. 0 = off (default behaviour). */
   extendedHorizonDays: number;
   /** URL of a price-forecast JSON feed (energieprijs forecast.json format). Empty = disabled. */

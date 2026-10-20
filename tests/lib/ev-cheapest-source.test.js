@@ -73,6 +73,23 @@ describe('planCheapestSourceEv', () => {
   });
 });
 
+describe('planCheapestSourceEv — trip returns', () => {
+  it('starts a window after a trip from the SoC before it minus the usage', () => {
+    // A window at 0-1, then a trip that uses 6000 Wh before the window at 3-5 (ceiling 33000).
+    const windows = [{ startSlot: 0, endSlot: 1, resetSoc_Wh: 30000 }, { startSlot: 3, endSlot: 5, drop_Wh: 6000 }];
+    const flows = planCheapestSourceEv(
+      Array.from({ length: T }, () => row({ ic: 5 })),
+      cfg,
+      { ...ev, availabilityWindows: windows, targets: [{ slot: 0, soc_Wh: 33000 }, { slot: 4, soc_Wh: 33000 }] },
+      none(),
+      [3, 5],
+    );
+    // The first window was not charged, so the car is back at 30000 − 6000 = 24000 and has 9000 of
+    // room; two slots at 3000 W deliver 6000. Without the drop it would have only 3000 of room.
+    expect(flows.g2ev.slice(3, 5)).toEqual([3000, 3000]);
+  });
+});
+
 describe('chargeStretches', () => {
   it('returns the runs of slots inside a window and the weekly mask', () => {
     expect(chargeStretches({

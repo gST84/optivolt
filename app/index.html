@@ -510,6 +510,32 @@
         </div>
       </section>
 
+      <!-- EV trip usage, learned from the EV's history in Home Assistant -->
+      <section class="card">
+        <div class="mb-4">
+          <h2 class="sidebar-label">EV Trip Usage</h2>
+        </div>
+        <label class="toggle">
+          <input id="ev-predict-trip-usage" type="checkbox" data-settings-input>
+          <span class="toggle-knob"></span>
+          <span class="text-sm">Predict from history</span>
+        </label>
+        <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          Learns how much of the EV battery a trip uses from the EV SoC and plug sensors (EV
+          settings) over the history Home Assistant keeps: from unplugging to plugging in again,
+          per weekday of departure. An arrival without its own SoC then counts as returning with
+          the SoC at departure minus that usage, instead of the last sensor reading. A trip with its
+          own usage keeps it.
+        </p>
+        <div id="ev-usage-panel" class="hidden mt-4 summary-panel">
+          <div class="summary-row">
+            <span class="stat-label">Based on</span>
+            <span id="ev-usage-trips" class="text-sm font-medium text-ink dark:text-slate-100">--</span>
+          </div>
+          <div id="ev-usage-days" class="grid grid-cols-4 border-t border-slate-100 dark:border-white/5"></div>
+        </div>
+      </section>
+
       <!-- Full Comparison -->
       <section class="card">
         <div class="mb-4">

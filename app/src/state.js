@@ -56,6 +56,7 @@ export function snapshotUI(els) {
     evTripSocBuffer_percent: num(els.evTripSocBuffer?.value),
     evEssSocFloor_percent: num(els.evEssSocFloor?.value),
     evWeeklyCheapestSource: !!els.evWeeklyCheapestSource?.checked,
+    evPredictTripUsage: !!els.evPredictTripUsage?.checked,
     evWeeklySchedule: readWeeklySchedule(els.evWeeklySchedule),
     evSocSensor: els.evSocSensor?.value ?? '',
     evPlugSensor: els.evPlugSensor?.value ?? '',
@@ -134,6 +135,9 @@ export function hydrateUI(els, obj = {}) {
   setIfDef(els.evEssSocFloor, obj.evEssSocFloor_percent);
   if (els.evWeeklyCheapestSource && obj.evWeeklyCheapestSource != null) {
     els.evWeeklyCheapestSource.checked = !!obj.evWeeklyCheapestSource;
+  }
+  if (els.evPredictTripUsage && obj.evPredictTripUsage != null) {
+    els.evPredictTripUsage.checked = !!obj.evPredictTripUsage;
   }
   if (Array.isArray(obj.evWeeklySchedule)) renderWeeklySchedule(els, obj.evWeeklySchedule);
   setIfDef(els.evSocSensor, obj.evSocSensor);

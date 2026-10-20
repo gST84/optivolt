@@ -60,6 +60,7 @@ export function setPlan(result) {
       pricesKnownUntilMs: finiteOrNull(result.pricesKnownUntilMs),
       standardWindowEndMs: finiteOrNull(result.standardWindowEndMs),
       tsStart: result.tsStart ?? null,
+      ...(result.evUsagePrediction ? { evUsagePrediction: result.evUsagePrediction } : {}),
     }
     : EMPTY_PLAN;
 

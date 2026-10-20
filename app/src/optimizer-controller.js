@@ -1,3 +1,4 @@
+import { updateEvUsagePredictionUI } from "./ev-usage.js";
 import {
   drawFlowsBarStackSigned,
   drawSocChart,
@@ -92,6 +93,7 @@ export function createOptimizerController({
     deps.updatePlanMeta(els, plan.tsStart, rows[rows.length - 1]?.timestampMs ?? null);
     deps.updateSummaryUI(els, plan.summary);
     deps.updateRebalanceNudgeUI(els, plan.rebalanceNudge);
+    updateEvUsagePredictionUI(plan.evUsagePrediction ?? null);
 
     const cfgForViz = getVizConfig();
 

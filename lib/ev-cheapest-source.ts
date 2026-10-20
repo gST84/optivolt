@@ -65,8 +65,10 @@ export function planCheapestSourceEv(
   const initialSoc_Wh = (cfg.initialSoc_percent / 100) * cfg.batteryCapacity_Wh;
 
   const resetAt = new Map<number, number>();
+  const dropAt = new Map<number, number>();
   for (const w of ev.availabilityWindows) {
     if (w.resetSoc_Wh != null && w.startSlot > 0) resetAt.set(w.startSlot, w.resetSoc_Wh);
+    else if (w.drop_Wh != null && w.startSlot > 0) dropAt.set(w.startSlot, w.drop_Wh);
   }
 
   // Ceiling per slot: the next target at or after it.
@@ -80,6 +82,8 @@ export function planCheapestSourceEv(
   for (let t = 0; t < Math.min(T, stretchEnd); t++) {
     const reset = resetAt.get(t);
     if (reset != null) evSoc_Wh = reset;
+    const drop = dropAt.get(t);
+    if (drop != null) evSoc_Wh = Math.max(0, evSoc_Wh - drop);
     if (t < stretchStart) {
       // Replay what earlier stretches charged to know the EV SoC this one starts from.
       evSoc_Wh += (flows.g2ev[t] + flows.pv2ev[t] + flows.b2ev[t]) * evChargeWhPerW;

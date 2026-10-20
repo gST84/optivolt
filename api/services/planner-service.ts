@@ -16,6 +16,8 @@ import { refreshPriceForecastAndPersist } from './price-forecast-service.ts';
 import { setDynamicEssSchedule } from './mqtt-service.ts';
 import { getRebalanceNudge, recordFullSocObservation, type RebalanceNudge } from './rebalance-nudge.ts';
 import { getRebalanceSchedule } from './rebalance-schedule.ts';
+import { getEvUsagePrediction } from './ev-usage-prediction.ts';
+import type { EvUsagePrediction } from '../../lib/ev-trip-usage.ts';
 import { getSolverInputsVersion } from './solver-inputs-version.ts';
 import { solveLp } from './solve-runner.ts';
 import { buildWarmStartColumns } from '../../lib/warm-start.ts';
@@ -64,6 +66,8 @@ export interface ComputePlanResult {
   summary: PlanSummary;
   rebalanceWindow?: RebalanceWindow;
   rebalanceNudge: RebalanceNudge;
+  /** Trip usage learned from the EV's history; null when off or unavailable. */
+  evUsagePrediction: EvUsagePrediction | null;
 }
 
 function roundPower(value: number): number {
@@ -166,7 +170,7 @@ function normalizePersistedData(loadedData: Data, evState: EvLiveState | undefin
   };
 }
 
-export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnownUntilMs?: number; timing: { startMs: number; stepMin: number }; data: Data; settings: Settings }> {
+export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnownUntilMs?: number; timing: { startMs: number; stepMin: number }; data: Data; settings: Settings; evUsagePrediction: EvUsagePrediction | null }> {
   const [settings, loadedData] = await Promise.all([loadSettings(), loadData()]);
   const startMs = getQuarterStart(new Date(), settings.stepSize_m);
 
@@ -177,9 +181,10 @@ export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnow
   const { data, changed } = normalizePersistedData(loadedData, evState, startMs);
   if (changed) await saveData(data);
 
+  const evUsagePrediction = await getEvUsagePrediction(settings, startMs);
   const adjustedData = applyPredictionAdjustmentsToData(data);
-  const { cfg, pricesKnownUntilMs } = buildSolverConfigFromSettings(settings, adjustedData, startMs, evState);
-  return { cfg, pricesKnownUntilMs, timing: { startMs, stepMin: settings.stepSize_m }, data, settings };
+  const { cfg, pricesKnownUntilMs } = buildSolverConfigFromSettings(settings, adjustedData, startMs, evState, evUsagePrediction);
+  return { cfg, pricesKnownUntilMs, timing: { startMs, stepMin: settings.stepSize_m }, data, settings, evUsagePrediction };
 }
 
 /**
@@ -237,7 +242,7 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
   }
 
   const solverInputs = await getSolverInputs();
-  const { cfg, pricesKnownUntilMs, timing } = solverInputs;
+  const { cfg, pricesKnownUntilMs, timing, evUsagePrediction } = solverInputs;
   let { data, settings } = solverInputs;
 
   // A just-completed hold cycle solves like any rebalance-free plan
@@ -395,7 +400,7 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
     nextRebalanceDueAt: nextRebalanceDueMs != null ? new Date(nextRebalanceDueMs).toISOString() : null,
   };
 
-  lastPlan = { cfg, data, batteryEnergyPriceSeed, computedAtMs: Date.now(), inputsVersion, inputsChangedDuringSolve, pricesKnownUntilMs: pricesKnownUntilMs ?? null, timing, result, rows: rowsWithDess, summary, rebalanceWindow, rebalanceNudge };
+  lastPlan = { cfg, data, batteryEnergyPriceSeed, computedAtMs: Date.now(), inputsVersion, inputsChangedDuringSolve, pricesKnownUntilMs: pricesKnownUntilMs ?? null, timing, result, rows: rowsWithDess, summary, rebalanceWindow, rebalanceNudge, evUsagePrediction };
   return lastPlan;
 }
 

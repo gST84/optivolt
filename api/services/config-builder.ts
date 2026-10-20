@@ -1,6 +1,7 @@
 import { HttpError } from '../http-errors.ts';
 import { extractWindow, extendSeriesWithForecast, getForecastTimeRange, getQuarterStart } from '../../lib/time-series-utils.ts';
 import { buildEvConfig } from './ev-config-builder.ts';
+import type { EvUsagePrediction } from '../../lib/ev-trip-usage.ts';
 import { getRebalanceSchedule } from './rebalance-schedule.ts';
 import type { SolverConfig, TimeSeries } from '../../lib/types.ts';
 import type { Settings, Data } from '../types.ts';
@@ -30,6 +31,7 @@ export function buildSolverConfigFromSettings(
   data: Data,
   nowMs = getQuarterStart(new Date(), settings.stepSize_m),
   evState?: { pluggedIn: boolean; soc_percent: number },
+  evUsagePrediction: EvUsagePrediction | null = null,
 ): { cfg: SolverConfig; pricesKnownUntilMs?: number } {
   // Extended horizon: append forecast prices past the end of the actual price
   // series. Actual values always win — the forecast never overrides them, and
@@ -155,6 +157,9 @@ export function buildSolverConfigFromSettings(
 
   const ev = buildEvConfig(settings, data.evScheduleEntries ?? [], evState, nowMs, base.load_W.length, {
     essSoc_percent: data.soc?.value,
+    usagePrediction: evUsagePrediction,
+    lastPluggedSoc_percent: data.evLastState?.soc_percent ?? null,
+    unpluggedAtMs: data.evLastState && !data.evLastState.pluggedIn ? new Date(data.evLastState.observedAt).getTime() : null,
   });
   if (ev) base.ev = ev;
 

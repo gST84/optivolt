@@ -39,6 +39,7 @@
   "evWeeklySchedule": [],
   "evEssSocFloor_percent": 0,
   "evWeeklyCheapestSource": false,
+  "evPredictTripUsage": false,
   "extendedHorizonDays": 0,
   "priceForecastUrl": ""
 }
