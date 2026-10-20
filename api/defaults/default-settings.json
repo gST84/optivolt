@@ -38,6 +38,7 @@
   "evTripSocBuffer_percent": 20,
   "evWeeklySchedule": [],
   "evEssSocFloor_percent": 0,
+  "evWeeklyCheapestSource": false,
   "extendedHorizonDays": 0,
   "priceForecastUrl": ""
 }

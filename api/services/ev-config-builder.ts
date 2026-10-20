@@ -99,7 +99,7 @@ export function buildEvConfig(
   // deadline-driven so that trip is not missed; weekly plans alone charge from the cheapest source.
   const hasManualDeadline = (entries ?? []).some((e) =>
     e.type === 'target' || e.type === 'trip' || (e.type === 'departure' && Number.isFinite(e.soc_percent)));
-  const cheapestSource = weekly.length > 0 && !hasManualDeadline;
+  const cheapestSource = settings.evWeeklyCheapestSource === true && weekly.length > 0 && !hasManualDeadline;
 
   // --- Map entries to open/close events and deadline requests (skipping beyond-horizon ones) ---
   type SweepEvent = { slot: number; kind: 'open' | 'close'; soc_percent?: number; drop_percent?: number };

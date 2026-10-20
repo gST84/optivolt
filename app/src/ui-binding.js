@@ -101,6 +101,7 @@ export function getElements() {
     evMaxSoc: $("#ev-max-soc"),
     evTripSocBuffer: $("#ev-trip-soc-buffer"),
     evEssSocFloor: $("#ev-ess-soc-floor"),
+    evWeeklyCheapestSource: $("#ev-weekly-cheapest-source"),
     // Weekly charging windows
     evWeeklySchedule: $("#ev-weekly-schedule"),
     evWeeklyList: $("#ev-weekly-list"),

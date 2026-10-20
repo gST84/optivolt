@@ -54,13 +54,16 @@ describe('buildEvConfig — weekly schedule', () => {
     expect(cfg.targets[0].soc_Wh).toBeCloseTo(24000 + 4 * 3680 * 0.25, 6);
   });
 
-  it('charges weekly plans from the cheapest source, with a home battery target before the window', () => {
+  it('charges weekly plans from the cheapest source when switched on, with a home battery target before the window', () => {
     const state = { pluggedIn: true, soc_percent: 40 };
     const plan = [{ ...WED[0], ess_soc_percent: 90 }];
-    const cfg = buildEvConfig({ ...base, batteryCapacity_Wh: 10000, evWeeklySchedule: plan }, [], state, NOW_MS, T);
+    const settings = { ...base, batteryCapacity_Wh: 10000, evWeeklySchedule: plan, evWeeklyCheapestSource: true };
+    const cfg = buildEvConfig(settings, [], state, NOW_MS, T);
     expect(cfg.cheapestSource).toBe(true);
     expect(cfg.essTargets).toEqual([{ slot: slotOf(local(2026, 10, 14, 18)) - 1, soc_Wh: 9000 }]);
-    expect(buildEvConfig(base, [], state, NOW_MS, T).cheapestSource).toBeUndefined();
+    // Switched off, or without weekly plans: deadline-driven as before.
+    expect(buildEvConfig({ ...settings, evWeeklyCheapestSource: false }, [], state, NOW_MS, T).cheapestSource).toBeUndefined();
+    expect(buildEvConfig({ ...base, evWeeklyCheapestSource: true }, [], state, NOW_MS, T).cheapestSource).toBeUndefined();
   });
 
   it('keeps deadline charging when the user entered a deadline', () => {
@@ -69,7 +72,7 @@ describe('buildEvConfig — weekly schedule', () => {
       id: 'manual-1', type: 'departure', time: new Date(local(2026, 10, 15, 6)).toISOString(), soc_percent: 90,
       createdAt: '', updatedAt: '',
     };
-    expect(buildEvConfig({ ...base, evWeeklySchedule: WED }, [departure], state, NOW_MS, T).cheapestSource).toBeUndefined();
+    expect(buildEvConfig({ ...base, evWeeklySchedule: WED, evWeeklyCheapestSource: true }, [departure], state, NOW_MS, T).cheapestSource).toBeUndefined();
   });
 
   it('ignores a plan without any weekday selected', () => {

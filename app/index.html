@@ -1047,13 +1047,21 @@
             <p id="ev-weekly-empty" class="text-xs text-slate-500 dark:text-slate-400">
               No weekly plans: the EV may charge whenever it is plugged in.
             </p>
+            <label class="toggle mt-3">
+              <input id="ev-weekly-cheapest-source" type="checkbox" data-settings-input>
+              <span class="toggle-knob"></span>
+              <span class="text-sm">Charge from the cheapest source (no deadline)</span>
+            </label>
             <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
               Each plan is a time window repeated on the ticked days (an end before the start is the
-              next day). Inside it the EV charges from the home battery, down to the home battery
-              floor and up to the EV limit, with the house served first; it takes grid power only
-              when that is cheaper than the energy in the battery plus wear. There is no deadline.
-              Beforehand the home battery is filled to the given level at the cheapest moments. Use
-              an extra horizon of a few days so it can plan ahead.
+              next day). The EV only charges inside the windows. Normally the plan's EV SoC is a
+              deadline at the window end. With the cheapest source on, there is no deadline: the EV
+              charges from the home battery, down to the home battery floor and up to the EV limit,
+              with the house served first, and takes grid power only when that is cheaper than the
+              energy in the battery plus wear; beforehand the home battery is filled to the plan's
+              level at the cheapest moments. This suits a home battery that is large compared to the
+              household use until the next cheap period. Use an extra horizon of a few days so the
+              plan can look ahead.
             </p>
           </div>
 

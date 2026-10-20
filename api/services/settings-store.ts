@@ -40,7 +40,7 @@ const EFFICIENCY_FIELDS: (keyof Settings)[] = [
 ];
 
 const BOOLEAN_FIELDS: (keyof Settings)[] = [
-  'blockFeedInOnNegativePrices', 'rebalanceEnabled', 'evEnabled',
+  'blockFeedInOnNegativePrices', 'rebalanceEnabled', 'evEnabled', 'evWeeklyCheapestSource',
 ];
 
 const STRING_FIELDS: (keyof Settings)[] = ['haUrl', 'haToken', 'evSocSensor', 'evPlugSensor'];

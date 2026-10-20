@@ -64,6 +64,12 @@ export interface Settings {
   evWeeklySchedule: EvWeeklyScheduleSlot[];
   /** Home battery SoC below which the EV may only charge from PV. 0 = disabled. */
   evEssSocFloor_percent: number;
+  /**
+   * Weekly plans charge from the cheapest source instead of towards a deadline: home battery
+   * energy down to the floor, grid power only when it is cheaper than the battery's energy plus
+   * wear. Off = each plan's SoC is a deadline at the window end.
+   */
+  evWeeklyCheapestSource: boolean;
   /** Extra planning days beyond the standard day-ahead window. 0 = off (default behaviour). */
   extendedHorizonDays: number;
   /** URL of a price-forecast JSON feed (energieprijs forecast.json format). Empty = disabled. */
