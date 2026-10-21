@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildEvUsagePrediction, extractEvTrips, predictTripUsage } from '../../lib/ev-trip-usage.ts';
+import { buildEvSocForecast, buildEvUsagePrediction, extractEvTrips, predictTripUsage } from '../../lib/ev-trip-usage.ts';
 
 const H = 3600_000;
 // Local-time fixtures: usage is grouped by the local weekday of departure.
@@ -52,5 +52,22 @@ describe('buildEvUsagePrediction / predictTripUsage', () => {
     expect(prediction.overall).toBeNull();
     expect(predictTripUsage(prediction, MON(8))).toBeNull();
     expect(predictTripUsage(null, MON(8))).toBeNull();
+  });
+});
+
+describe('buildEvSocForecast', () => {
+  it('follows the plan at home and draws the trip in between as a line down to the arrival', () => {
+    // Window 0-2 charges 40 → 60%, away 2-5, back at 5 after a 20% trip (drop), window 5-7.
+    const evSoc = [50, 60, 60, 60, 60, 45, 50];
+    const windows = [{ startSlot: 0, endSlot: 2 }, { startSlot: 5, endSlot: 7, drop_Wh: 12000 }];
+    const out = buildEvSocForecast(evSoc, windows, 60000, 40);
+    expect(out.slice(0, 2)).toEqual([50, 60]);
+    expect(out.slice(2, 5).map((v) => Math.round(v * 10) / 10)).toEqual([53.3, 46.7, 40]);
+    expect(out.slice(5)).toEqual([45, 50]);
+  });
+
+  it('starts from the current SoC when the car is away, and knows nothing after the last window', () => {
+    const out = buildEvSocForecast([30, 30, 30, 35, 35], [{ startSlot: 2, endSlot: 4, resetSoc_Wh: 18000 }], 60000, 50);
+    expect(out).toEqual([40, 30, 30, 35, null]);
   });
 });

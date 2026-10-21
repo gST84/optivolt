@@ -103,3 +103,41 @@ export function predictTripUsage(prediction: EvUsagePrediction | null | undefine
   if (!prediction) return null;
   return prediction.byWeekday[new Date(departMs).getDay()] ?? prediction.overall;
 }
+
+/**
+ * The EV SoC the plan expects, per slot, with the trips in it: the planned SoC while the car is
+ * home (inside an availability window), and between windows a straight line from the SoC at
+ * departure to the SoC the next window starts from (after the trip's usage). When the car is
+ * away at the start, the line runs from `currentSoc_percent`. After the last window nothing is
+ * known (null).
+ */
+export function buildEvSocForecast(
+  evSoc_percent: number[],
+  windows: { startSlot: number; endSlot: number; resetSoc_Wh?: number; drop_Wh?: number }[],
+  evCapacity_Wh: number,
+  currentSoc_percent: number | null,
+): (number | null)[] {
+  const T = evSoc_percent.length;
+  const out: (number | null)[] = Array(T).fill(null);
+  const pct = (wh: number) => (wh / evCapacity_Wh) * 100;
+  const sorted = [...windows].sort((a, b) => a.startSlot - b.startSlot);
+  let prevEnd: number | null = null; // first slot after the previous window
+  let prevSoc: number | null = currentSoc_percent;
+  for (const w of sorted) {
+    const start = Math.max(0, w.startSlot);
+    // SoC the window starts from, before any charging in its first slot.
+    const before = start > 0 ? evSoc_percent[start - 1] : prevSoc;
+    const arrival = w.resetSoc_Wh != null
+      ? pct(w.resetSoc_Wh)
+      : before != null ? before - pct(w.drop_Wh ?? 0) : null;
+    const from = prevEnd ?? 0;
+    if (prevSoc != null && arrival != null && start > from) {
+      // The away gap: from the SoC at departure (one slot before `from`) down to the arrival.
+      for (let t = from; t < start; t++) out[t] = prevSoc + (arrival - prevSoc) * ((t - from + 1) / (start - from));
+    }
+    for (let t = start; t < Math.min(T, w.endSlot); t++) out[t] = evSoc_percent[t];
+    prevEnd = Math.min(T, w.endSlot);
+    prevSoc = prevEnd > 0 ? evSoc_percent[prevEnd - 1] : prevSoc;
+  }
+  return out;
+}

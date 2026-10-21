@@ -527,6 +527,7 @@
           the SoC at departure minus that usage, instead of the last sensor reading. A trip with its
           own usage keeps it.
         </p>
+        <p id="ev-usage-status" class="hidden mt-3 text-xs font-medium"></p>
         <div id="ev-usage-panel" class="hidden mt-4 summary-panel">
           <div class="summary-row">
             <span class="stat-label">Based on</span>
@@ -646,6 +647,19 @@
           </div>
           <div id="prediction-adjustments-list" class="space-y-2"></div>
         </div>
+      </section>
+
+      <!-- EV SoC: measured over the last week, expected over the plan with the trips in it -->
+      <section class="card">
+        <h2 class="mb-3 sidebar-label">EV SoC</h2>
+        <div class="h-56 w-full chart-wrap" data-chart-empty="Turn on EV trip usage and run the optimizer">
+          <canvas id="ev-soc-forecast" class="h-full w-full"></canvas>
+        </div>
+        <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          Solid: the EV SoC sensor over the last week. Dashed: what the plan expects, charging at
+          home and the predicted usage of each trip in between (a straight line from departure to
+          arrival).
+        </p>
       </section>
 
       <!-- Load History Comparison Chart -->

@@ -16,8 +16,8 @@ import { refreshPriceForecastAndPersist } from './price-forecast-service.ts';
 import { setDynamicEssSchedule } from './mqtt-service.ts';
 import { getRebalanceNudge, recordFullSocObservation, type RebalanceNudge } from './rebalance-nudge.ts';
 import { getRebalanceSchedule } from './rebalance-schedule.ts';
-import { getEvUsagePrediction } from './ev-usage-prediction.ts';
-import type { EvUsagePrediction } from '../../lib/ev-trip-usage.ts';
+import { getEvUsageInfo, type EvUsageInfo } from './ev-usage-prediction.ts';
+import { buildEvSocForecast } from '../../lib/ev-trip-usage.ts';
 import { getSolverInputsVersion } from './solver-inputs-version.ts';
 import { solveLp } from './solve-runner.ts';
 import { buildWarmStartColumns } from '../../lib/warm-start.ts';
@@ -66,8 +66,10 @@ export interface ComputePlanResult {
   summary: PlanSummary;
   rebalanceWindow?: RebalanceWindow;
   rebalanceNudge: RebalanceNudge;
-  /** Trip usage learned from the EV's history; null when off or unavailable. */
-  evUsagePrediction: EvUsagePrediction | null;
+  /** What the EV trip usage learning found (status, prediction, last week's measured SoC). */
+  evUsage: EvUsageInfo;
+  /** Expected EV SoC per row, trips included (see buildEvSocForecast); empty without an EV. */
+  evSocForecast: (number | null)[];
 }
 
 function roundPower(value: number): number {
@@ -170,7 +172,7 @@ function normalizePersistedData(loadedData: Data, evState: EvLiveState | undefin
   };
 }
 
-export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnownUntilMs?: number; timing: { startMs: number; stepMin: number }; data: Data; settings: Settings; evUsagePrediction: EvUsagePrediction | null }> {
+export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnownUntilMs?: number; timing: { startMs: number; stepMin: number }; data: Data; settings: Settings; evUsage: EvUsageInfo }> {
   const [settings, loadedData] = await Promise.all([loadSettings(), loadData()]);
   const startMs = getQuarterStart(new Date(), settings.stepSize_m);
 
@@ -181,10 +183,10 @@ export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnow
   const { data, changed } = normalizePersistedData(loadedData, evState, startMs);
   if (changed) await saveData(data);
 
-  const evUsagePrediction = await getEvUsagePrediction(settings, startMs);
+  const evUsage = await getEvUsageInfo(settings, startMs);
   const adjustedData = applyPredictionAdjustmentsToData(data);
-  const { cfg, pricesKnownUntilMs } = buildSolverConfigFromSettings(settings, adjustedData, startMs, evState, evUsagePrediction);
-  return { cfg, pricesKnownUntilMs, timing: { startMs, stepMin: settings.stepSize_m }, data, settings, evUsagePrediction };
+  const { cfg, pricesKnownUntilMs } = buildSolverConfigFromSettings(settings, adjustedData, startMs, evState, evUsage.prediction);
+  return { cfg, pricesKnownUntilMs, timing: { startMs, stepMin: settings.stepSize_m }, data, settings, evUsage };
 }
 
 /**
@@ -242,7 +244,7 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
   }
 
   const solverInputs = await getSolverInputs();
-  const { cfg, pricesKnownUntilMs, timing, evUsagePrediction } = solverInputs;
+  const { cfg, pricesKnownUntilMs, timing, evUsage } = solverInputs;
   let { data, settings } = solverInputs;
 
   // A just-completed hold cycle solves like any rebalance-free plan
@@ -386,6 +388,15 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
     }
   }
 
+  const evSocForecast = cfg.ev
+    ? buildEvSocForecast(
+      rows.map((r) => r.ev_soc_percent),
+      cfg.ev.availabilityWindows,
+      cfg.ev.evBatteryCapacity_Wh,
+      Number.isFinite(cfg.ev.evInitialSoc_percent) ? cfg.ev.evInitialSoc_percent : null,
+    )
+    : [];
+
   const rebalanceCtx = rebalanceOn ? {
     enabled: true,
     startMs: data.rebalanceState?.startMs ?? null,
@@ -400,7 +411,7 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
     nextRebalanceDueAt: nextRebalanceDueMs != null ? new Date(nextRebalanceDueMs).toISOString() : null,
   };
 
-  lastPlan = { cfg, data, batteryEnergyPriceSeed, computedAtMs: Date.now(), inputsVersion, inputsChangedDuringSolve, pricesKnownUntilMs: pricesKnownUntilMs ?? null, timing, result, rows: rowsWithDess, summary, rebalanceWindow, rebalanceNudge, evUsagePrediction };
+  lastPlan = { cfg, data, batteryEnergyPriceSeed, computedAtMs: Date.now(), inputsVersion, inputsChangedDuringSolve, pricesKnownUntilMs: pricesKnownUntilMs ?? null, timing, result, rows: rowsWithDess, summary, rebalanceWindow, rebalanceNudge, evUsage, evSocForecast };
   return lastPlan;
 }
 
