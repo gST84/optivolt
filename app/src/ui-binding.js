@@ -19,6 +19,8 @@ export function getElements() {
     rebalanceEnabled: $("#rebalance-enabled"),
     rebalanceNudge: $("#rebalance-nudge"),
     rebalanceHoldHours: $("#rebalance-hold-hours"),
+    rebalanceEveryWeeks: $("#rebalance-every-weeks"),
+    rebalanceNext: $("#rebalance-next"),
     blockFeedInOnNegativePrices: $("#block-feedin-negative-prices"),
 
     // numeric inputs
@@ -66,6 +68,7 @@ export function getElements() {
     sumLoadBatt: $("#sum-load-batt-kwh"),
     sumLoadPv: $("#sum-load-pv-kwh"),
     avgImport: $("#avg-import-cent"),
+    batteryEnergyPrice: $("#battery-energy-price"),
     netCost: $("#net-cost-cent"),
     gridBatteryTp: $("#tipping-point-cent"),
     gridChargeTp: $("#grid-charge-point-cent"),
@@ -97,6 +100,14 @@ export function getElements() {
     evSocValuation: $("#ev-soc-valuation"),
     evMaxSoc: $("#ev-max-soc"),
     evTripSocBuffer: $("#ev-trip-soc-buffer"),
+    evEssSocFloor: $("#ev-ess-soc-floor"),
+    evWeeklyCheapestSource: $("#ev-weekly-cheapest-source"),
+    evPredictTripUsage: $("#ev-predict-trip-usage"),
+    // Weekly charging windows
+    evWeeklySchedule: $("#ev-weekly-schedule"),
+    evWeeklyList: $("#ev-weekly-list"),
+    evWeeklyEmpty: $("#ev-weekly-empty"),
+    evWeeklyAdd: $("#ev-weekly-add"),
     // EV schedule entries (list + inline editor)
     evScheduleEntriesList: $("#ev-schedule-entries-list"),
     evScheduleEntriesCount: $("#ev-schedule-entries-count"),
@@ -140,6 +151,7 @@ export function getElements() {
     evTabEffectiveRate: $("#ev-tab-effective-rate"),
     evTabFreeSolar: $("#ev-tab-free-solar"),
     evTabModeRows: $("#ev-tab-mode-rows"),
+    evTabSessions: $("#ev-tab-sessions"),
     evPowerChart: $("#ev-power-chart"),
     evSocChartTab: $("#ev-soc-chart-tab"),
     evScheduleTable: $("#ev-schedule-table"),

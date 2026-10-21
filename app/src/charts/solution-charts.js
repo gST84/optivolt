@@ -169,7 +169,8 @@ export function drawSocChart(canvas, rows, _stepSize_m = 15, evSettings = null) 
   if (hasEvSoc) {
     datasets.push({
       label: "EV SoC (%)",
-      data: rows.map(r => r.ev_soc_percent ?? 0),
+      // The expected SoC with predicted trips drawn in, when there is a trip prediction.
+      data: rows.map(r => r.ev_soc_forecast_percent ?? r.ev_soc_percent ?? 0),
       borderColor: SOLUTION_COLORS.ev_charge,
       backgroundColor: makeSocGradient(SOLUTION_COLORS.ev_charge),
       fill: 'origin',
@@ -318,7 +319,19 @@ export function drawPricesStepLines(canvas, rows, _stepSize_m = 15, pricesKnownU
           borderColor: "#22c55e",
           backgroundColor: "#22c55e",
           ...commonLine
-        }
+        },
+        // Average purchase price of the energy in the battery; absent while unknown.
+        ...(rows.some(r => r.batteryEnergyPrice_cents_per_kWh != null) ? [{
+          label: "Battery energy",
+          data: rows.map(r => r.batteryEnergyPrice_cents_per_kWh ?? null),
+          borderColor: SOLUTION_COLORS.soc,
+          backgroundColor: SOLUTION_COLORS.soc,
+          stepped: true,
+          borderWidth: strokeW,
+          borderDash: [2, 3],
+          pointRadius: 0,
+          pointHitRadius: 8,
+        }] : []),
       ]
     },
     options: getBaseOptions({ ...axis, yTitle: "c€/kWh" }, {
@@ -334,6 +347,7 @@ export function drawPricesStepLines(canvas, rows, _stepSize_m = 15, pricesKnownU
               const isForecast = boundaryIdx >= 0 && idx >= boundaryIdx;
               let html = ttHeader(time, isForecast ? 'forecast' : '');
               for (const pt of (tooltip.dataPoints ?? [])) {
+                if (pt.raw == null) continue;
                 html += ttRow(pt.dataset.borderColor, pt.dataset.label, `${pt.raw.toFixed(1)} c€/kWh`);
               }
               return html;

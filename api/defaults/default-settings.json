@@ -23,6 +23,7 @@
   },
   "rebalanceEnabled": false,
   "rebalanceHoldHours": 3,
+  "rebalanceEveryWeeks": 0,
   "haUrl": "ws://homeassistant.local:8123/api/websocket",
   "haToken": "",
   "evEnabled": false,
@@ -35,6 +36,10 @@
   "evMaxSoc_percent": 100,
   "evSocValue_cents_per_kWh": 0,
   "evTripSocBuffer_percent": 20,
+  "evWeeklySchedule": [],
+  "evEssSocFloor_percent": 0,
+  "evWeeklyCheapestSource": false,
+  "evPredictTripUsage": false,
   "extendedHorizonDays": 0,
   "priceForecastUrl": ""
 }

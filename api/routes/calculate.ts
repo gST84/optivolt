@@ -8,7 +8,7 @@ import { getSolverInputsVersion } from '../services/solver-inputs-version.ts';
 
 const router = express.Router();
 
-function planToResponse({ cfg, computedAtMs, pricesKnownUntilMs, timing, result, rows, summary, rebalanceWindow, rebalanceNudge }: ComputePlanResult) {
+function planToResponse({ cfg, computedAtMs, pricesKnownUntilMs, timing, result, rows, summary, rebalanceWindow, rebalanceNudge, evUsage, evSocForecast }: ComputePlanResult) {
   return {
     solverStatus: result.Status,
     objectiveValue: result.ObjectiveValue,
@@ -19,6 +19,8 @@ function planToResponse({ cfg, computedAtMs, pricesKnownUntilMs, timing, result,
     summary,
     rebalanceWindow,
     rebalanceNudge,
+    evUsage,
+    evSocForecast,
     // Extended horizon: prices past this instant are forecast, not actuals.
     pricesKnownUntilMs,
     // Canonical end of the classic day-ahead window, computed in the
