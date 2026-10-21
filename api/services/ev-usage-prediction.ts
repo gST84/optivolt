@@ -65,11 +65,13 @@ export async function getEvUsageInfo(settings: Settings, nowMs = Date.now()): Pr
     });
     const soc = history[settings.evSocSensor] ?? [];
     const plug = history[settings.evPlugSensor] ?? [];
-    const prediction = buildEvUsagePrediction(extractEvTrips(soc, plug));
+    // The history covers from its first reading on (the recorder may keep less than asked for).
+    const firstMs = Math.min(...[...soc, ...plug].map((p) => p.t), nowMs);
+    const prediction = buildEvUsagePrediction(extractEvTrips(soc, plug), Math.max(firstMs, nowMs - LOOKBACK_DAYS * DAY_MS), nowMs);
     const usable = prediction.overall != null || prediction.byWeekday.some((v) => v != null);
     info = {
       status: usable ? 'ok' : 'insufficient',
-      ...(usable ? {} : { message: `${prediction.trips} trip(s) found; at least 3 are needed` }),
+      ...(usable ? {} : { message: `${prediction.trips} trip(s) over ${prediction.days} whole day(s); at least 3 days are needed` }),
       prediction,
       history: resampleSoc(soc, nowMs - SHOWN_HISTORY_DAYS * DAY_MS, nowMs),
       socReadings: soc.length,

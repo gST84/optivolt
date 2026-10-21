@@ -521,11 +521,12 @@
           <span class="text-sm">Predict from history</span>
         </label>
         <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
-          Learns how much of the EV battery a trip uses from the EV SoC and plug sensors (EV
-          settings) over the history Home Assistant keeps: from unplugging to plugging in again,
-          per weekday of departure. An arrival without its own SoC then counts as returning with
-          the SoC at departure minus that usage, instead of the last sensor reading. A trip with its
-          own usage keeps it.
+          Learns how much of the EV battery is used per day, per weekday, from the EV SoC and plug
+          sensors (EV settings) over the history Home Assistant keeps: each unplug to plug-in is a
+          trip, its use the SoC drop. An arrival without its own SoC then counts as returning with
+          the SoC at departure minus the use expected while away (the share of each day's driving
+          hours, 06:00–22:00), instead of the last sensor reading. A trip with its own usage keeps
+          it.
         </p>
         <p id="ev-usage-status" class="hidden mt-3 text-xs font-medium"></p>
         <div id="ev-usage-panel" class="hidden mt-4 summary-panel">

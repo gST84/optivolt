@@ -1,4 +1,4 @@
-import { predictTripUsage, type EvUsagePrediction } from '../../lib/ev-trip-usage.ts';
+import { predictUsageBetween, type EvUsagePrediction } from '../../lib/ev-trip-usage.ts';
 import type { EvConfig, EvSocTarget } from '../../lib/types.ts';
 import type { EvScheduleEntry, Settings } from '../types.ts';
 import { expandWeeklySchedule, weeklyScheduleEntries } from './ev-weekly-schedule.ts';
@@ -203,14 +203,15 @@ export function buildEvConfig(
     ? { startSlot: 0, resetSoc_Wh: initialWh }
     : null;
   // An arrival without its own SoC is a trip return when the usage can be predicted from the
-  // EV's history: the SoC at departure minus the usage of a trip leaving at that time. For the
+  // EV's history: the SoC at departure minus the usage expected while the car is away. For the
   // trip under way now, what the sensor already shows as used is taken off the prediction.
   let lastDepartureSlot: number | null = null;
-  const predictedDrop_percent = (): number | null => {
+  const slotMs = settings.stepSize_m * 60_000;
+  const predictedDrop_percent = (arrivalSlot: number): number | null => {
     const departMs = lastDepartureSlot != null
-      ? nowMs + lastDepartureSlot * settings.stepSize_m * 60_000
+      ? nowMs + lastDepartureSlot * slotMs
       : (opts.unpluggedAtMs ?? nowMs);
-    let usage = predictTripUsage(opts.usagePrediction, departMs);
+    let usage = predictUsageBetween(opts.usagePrediction, departMs, nowMs + arrivalSlot * slotMs);
     if (usage != null && lastDepartureSlot == null) {
       const before = opts.lastPluggedSoc_percent;
       const current = evState?.soc_percent;
@@ -223,7 +224,7 @@ export function buildEvConfig(
   for (const ev of events) {
     if (ev.kind === 'open') {
       if (open != null) continue; // already available → arrival is a no-op
-      const drop_percent = ev.drop_percent ?? (Number.isFinite(ev.soc_percent) ? null : predictedDrop_percent());
+      const drop_percent = ev.drop_percent ?? (Number.isFinite(ev.soc_percent) ? null : predictedDrop_percent(ev.slot));
       if (drop_percent != null) {
         const dropWh = socToWh(drop_percent);
         open = { startSlot: ev.slot, ...(dropWh > 0 ? { drop_Wh: dropWh } : {}) };

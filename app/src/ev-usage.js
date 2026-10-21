@@ -60,11 +60,11 @@ function updateCard(usage) {
   if (!panel || !trips || !days) return;
   panel.classList.toggle("hidden", !prediction);
   if (!prediction) return;
-  trips.textContent = `${prediction.trips} ${prediction.trips === 1 ? "trip" : "trips"}`;
+  trips.textContent = `${prediction.trips} ${prediction.trips === 1 ? "trip" : "trips"} over ${prediction.days} days`;
   days.replaceChildren(
     ...DAYS.map((d) => cell(d.label, fmt(prediction.byWeekday?.[d.value]), prediction.byWeekday?.[d.value] == null
-      ? "Fewer than two trips on this day: the overall average is used" : "")),
-    cell("All", fmt(prediction.overall), "Average of all trips; used for days without enough trips"),
+      ? "Fewer than two of these days in the history: the overall average is used" : "Average use on this weekday")),
+    cell("All", fmt(prediction.overall), "Average use per day; used for weekdays with too little history"),
   );
 }
 

@@ -224,18 +224,21 @@ Two EV options cover a car that charges on fixed days.
   The plan only sees windows inside its horizon. Set **Extra horizon (days)**
   to 2–3 so a Monday plan already prepares for Wednesday.
 - **EV trip usage** (Predictions tab, `evPredictTripUsage`, off by default):
-  learns how much of the EV battery a trip uses from the history Home Assistant
-  keeps of the EV SoC and plug sensors (10 days by default, up to 56 are read):
-  each unplug-to-plug-in is a trip, its usage the SoC at unplug minus the first
-  reading after plugging back in. Averaged per weekday of departure (at least
-  two trips, otherwise the average of all trips, which needs three). An arrival
-  without its own SoC, including the arrival at a weekly plan's window, then
-  counts as a trip return: the SoC at departure minus the predicted usage,
-  rather than the last sensor reading. For a trip under way, usage the sensor
-  already shows is taken off. The history is read at most every six hours.
-  The Predictions tab shows the usage per weekday, why there is none yet (too
-  few trips, or the history could not be read), and an EV SoC chart: the
-  measured SoC over the last week and the SoC the plan expects, trips included.
+  learns how much of the EV battery is used per day from the history Home
+  Assistant keeps of the EV SoC and plug sensors (10 days by default, up to 56
+  are read): each unplug-to-plug-in is a trip, its usage the SoC at unplug
+  minus the first reading after plugging back in. A day's use is that of all
+  trips leaving on it (0 without a trip), averaged per weekday (at least two
+  such days, otherwise the average over all days, which needs three). An
+  arrival without its own SoC, including the arrival at a weekly plan's window,
+  then counts as a trip return: the SoC at departure minus the use expected
+  while away, each day weighted by the share of its driving hours (06:00–22:00)
+  the car is gone, rather than the last sensor reading. For a trip under way,
+  usage the sensor already shows is taken off. The history is read at most
+  every six hours. The Predictions tab shows the use per weekday, why there is
+  none yet (too little history, or the history could not be read), and an EV
+  SoC chart: the measured SoC over the last week and the SoC the plan expects,
+  trips included; the Battery SoC chart draws the same expected EV SoC.
 - **Home battery floor for EV** (EV settings card, `evEssSocFloor_percent`,
   0 = off): while the home battery SoC is below this value, the EV only charges
   from solar, with no grid and no battery. One exception: in slots where the buy

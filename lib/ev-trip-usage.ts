@@ -19,12 +19,17 @@ export interface EvTrip {
 }
 
 export interface EvUsagePrediction {
-  /** Expected usage of a trip departing on that weekday (0 = Sunday … 6 = Saturday), in %. */
+  /**
+   * Expected usage per day on that weekday (0 = Sunday … 6 = Saturday), in % of the battery:
+   * all trips leaving that day together, days without a trip counting as 0.
+   */
   byWeekday: (number | null)[];
-  /** Expected usage of any trip, in %; null with too little history. */
+  /** Expected usage per day over all weekdays, in %; null with too little history. */
   overall: number | null;
   /** Number of trips the prediction is based on. */
   trips: number;
+  /** Number of whole days of history it is based on. */
+  days: number;
 }
 
 const UNKNOWN = new Set(['unavailable', 'unknown', '']);
@@ -33,8 +38,13 @@ const UNPLUGGED = new Set(['disconnected', 'off']);
 const MAX_ARRIVAL_READING_LAG_MS = 2 * 60 * 60 * 1000;
 /** Shorter stops are a quick unplug/replug, not a trip. */
 const MIN_TRIP_MS = 15 * 60 * 1000;
-const MIN_WEEKDAY_TRIPS = 2;
-const MIN_TRIPS = 3;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** A weekday needs this many days of history, the overall average this many in total. */
+const MIN_WEEKDAY_DAYS = 2;
+const MIN_DAYS = 3;
+/** Driving is assumed to happen in these hours; a gap covering part of them gets that share of the day. */
+const DRIVING_FROM_H = 6;
+const DRIVING_TO_H = 22;
 
 /** Same reading of a plug state as the planner (planner-service.ts): anything but these is plugged. */
 export function isPluggedState(state: string): boolean | null {
@@ -83,25 +93,51 @@ export function extractEvTrips(soc: HaStatePoint[], plug: HaStatePoint[]): EvTri
 
 const mean = (xs: number[]) => xs.reduce((sum, x) => sum + x, 0) / xs.length;
 
+const localDayStart = (ms: number) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const nextLocalDay = (dayStartMs: number) => { const d = new Date(dayStartMs); d.setDate(d.getDate() + 1); return d.getTime(); };
+
 /**
- * Average usage per departure weekday (local time), with an overall average as fallback. A
- * weekday needs at least two trips and the overall average three, so a single odd trip does not
- * become the rule.
+ * Average usage per day for each weekday (local time), over the whole days between `fromMs`
+ * and `toMs` that the history covers: a day's usage is that of all trips leaving on it, a day
+ * without a trip counts as 0. A weekday needs at least two such days and the overall average
+ * three, so a single odd day does not become the rule.
  */
-export function buildEvUsagePrediction(trips: EvTrip[]): EvUsagePrediction {
+export function buildEvUsagePrediction(trips: EvTrip[], fromMs: number, toMs: number): EvUsagePrediction {
+  const perDay = new Map<number, number>();
+  for (let d = nextLocalDay(localDayStart(fromMs)); nextLocalDay(d) <= toMs; d = nextLocalDay(d)) perDay.set(d, 0);
+  for (const trip of trips) {
+    const d = localDayStart(trip.departMs);
+    if (perDay.has(d)) perDay.set(d, (perDay.get(d) ?? 0) + trip.usage_percent);
+  }
   const byDay: number[][] = Array.from({ length: 7 }, () => []);
-  for (const trip of trips) byDay[new Date(trip.departMs).getDay()].push(trip.usage_percent);
+  for (const [d, usage] of perDay) byDay[new Date(d).getDay()].push(usage);
+  const all = [...perDay.values()];
   return {
-    byWeekday: byDay.map((xs) => (xs.length >= MIN_WEEKDAY_TRIPS ? mean(xs) : null)),
-    overall: trips.length >= MIN_TRIPS ? mean(trips.map((t) => t.usage_percent)) : null,
-    trips: trips.length,
+    byWeekday: byDay.map((xs) => (xs.length >= MIN_WEEKDAY_DAYS ? mean(xs) : null)),
+    overall: all.length >= MIN_DAYS ? mean(all) : null,
+    trips: trips.filter((t) => perDay.has(localDayStart(t.departMs))).length,
+    days: all.length,
   };
 }
 
-/** Expected usage of a trip departing at `departMs`, in %; null when the history cannot tell. */
-export function predictTripUsage(prediction: EvUsagePrediction | null | undefined, departMs: number): number | null {
-  if (!prediction) return null;
-  return prediction.byWeekday[new Date(departMs).getDay()] ?? prediction.overall;
+/**
+ * Expected usage while the car is away from `fromMs` to `toMs`, in %: each day's usage
+ * (its weekday's, else the overall average) times the share of that day's driving hours
+ * (06:00–22:00) the stretch covers. Null when the history cannot tell.
+ */
+export function predictUsageBetween(prediction: EvUsagePrediction | null | undefined, fromMs: number, toMs: number): number | null {
+  if (!prediction || !(toMs > fromMs)) return null;
+  if (prediction.overall == null && prediction.byWeekday.every((v) => v == null)) return null;
+  let usage = 0;
+  for (let d = localDayStart(fromMs); d < toMs; d = nextLocalDay(d)) {
+    const day = new Date(d);
+    const driveFrom = new Date(day.getFullYear(), day.getMonth(), day.getDate(), DRIVING_FROM_H).getTime();
+    const driveTo = new Date(day.getFullYear(), day.getMonth(), day.getDate(), DRIVING_TO_H).getTime();
+    const overlap = Math.max(0, Math.min(toMs, driveTo) - Math.max(fromMs, driveFrom));
+    const perDay = prediction.byWeekday[day.getDay()] ?? prediction.overall;
+    if (perDay != null) usage += perDay * (overlap / (driveTo - driveFrom));
+  }
+  return usage;
 }
 
 /**

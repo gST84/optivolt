@@ -211,7 +211,9 @@ export interface PlanRow {
   ev_charge: number;    // total EV charge power W
   ev_charge_A: number;  // charge current A (ev_charge / 230, single-phase)
   ev_charge_mode: EvChargeMode;
-  ev_soc_percent: number;  // EV SoC %
+  ev_soc_percent: number;
+  /** Expected EV SoC with predicted trip usage drawn in (lines through away gaps); only with a trip prediction. */
+  ev_soc_forecast_percent?: number;  // EV SoC %
   /** Resolved EV SoC deadline pinned at this slot, in % of the EV battery. Absent when no target lands here. */
   ev_target_soc_percent?: number;
 }

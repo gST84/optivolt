@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildEvSocForecast, buildEvUsagePrediction, extractEvTrips, predictTripUsage } from '../../lib/ev-trip-usage.ts';
+import { buildEvSocForecast, buildEvUsagePrediction, extractEvTrips, predictUsageBetween } from '../../lib/ev-trip-usage.ts';
 
 const H = 3600_000;
 // Local-time fixtures: usage is grouped by the local weekday of departure.
@@ -30,28 +30,41 @@ describe('extractEvTrips', () => {
   });
 });
 
-describe('buildEvUsagePrediction / predictTripUsage', () => {
-  const trip = (departMs, usage_percent) => ({ departMs, arriveMs: departMs + 8 * H, usage_percent });
+describe('buildEvUsagePrediction / predictUsageBetween', () => {
+  const trip = (departMs, usage_percent) => ({ departMs, arriveMs: departMs + 4 * H, usage_percent });
+  // History from Monday 12 Oct 00:00 to Monday 26 Oct 00:00: two of every weekday.
+  const FROM = at(2026, 10, 11, 23);
+  const TO = at(2026, 10, 26, 0);
   const trips = [
-    trip(MON(8), 10), trip(at(2026, 10, 19, 8), 14), // two Mondays
+    trip(at(2026, 10, 12, 8), 6), trip(at(2026, 10, 12, 17), 4), // Monday: two trips, 10%
+    trip(at(2026, 10, 19, 8), 6), // next Monday: 6%
     trip(at(2026, 10, 14, 8), 30), // one Wednesday
   ];
 
-  it('averages per weekday with two trips or more, else falls back to the overall average', () => {
-    const prediction = buildEvUsagePrediction(trips);
-    expect(prediction.trips).toBe(3);
-    expect(prediction.byWeekday[1]).toBe(12);
-    expect(prediction.byWeekday[3]).toBeNull();
-    expect(prediction.overall).toBeCloseTo(18, 9);
-    expect(predictTripUsage(prediction, at(2026, 10, 26, 7))).toBe(12); // a Monday
-    expect(predictTripUsage(prediction, at(2026, 10, 28, 7))).toBeCloseTo(18, 9); // a Wednesday
+  it('averages the use per day, per weekday, with days without a trip counting as 0', () => {
+    const prediction = buildEvUsagePrediction(trips, FROM, TO);
+    expect(prediction.days).toBe(14);
+    expect(prediction.trips).toBe(4);
+    expect(prediction.byWeekday[1]).toBe(8); // (10 + 6) / 2
+    expect(prediction.byWeekday[3]).toBe(15); // (30 + 0) / 2
+    expect(prediction.byWeekday[2]).toBe(0);
+    expect(prediction.overall).toBeCloseTo(46 / 14, 9);
+  });
+
+  it('predicts the share of each day\'s driving hours a stretch away covers', () => {
+    const prediction = buildEvUsagePrediction(trips, FROM, TO);
+    // Monday 06:00-22:00 in full: 8%. Monday 14:00 to Wednesday 10:00: half a Monday,
+    // all of Tuesday (0) and a quarter of Wednesday's driving hours (15%).
+    expect(predictUsageBetween(prediction, at(2026, 10, 26, 0), at(2026, 10, 27, 0))).toBeCloseTo(8, 9);
+    expect(predictUsageBetween(prediction, at(2026, 10, 26, 14), at(2026, 10, 28, 10))).toBeCloseTo(4 + 0 + 3.75, 9);
   });
 
   it('predicts nothing without enough history', () => {
-    const prediction = buildEvUsagePrediction(trips.slice(0, 1));
+    const prediction = buildEvUsagePrediction(trips, at(2026, 10, 11, 23), at(2026, 10, 14, 0));
+    expect(prediction.days).toBe(2);
     expect(prediction.overall).toBeNull();
-    expect(predictTripUsage(prediction, MON(8))).toBeNull();
-    expect(predictTripUsage(null, MON(8))).toBeNull();
+    expect(predictUsageBetween(prediction, MON(8), MON(18))).toBeNull();
+    expect(predictUsageBetween(null, MON(8), MON(18))).toBeNull();
   });
 });
 

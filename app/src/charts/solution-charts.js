@@ -169,7 +169,8 @@ export function drawSocChart(canvas, rows, _stepSize_m = 15, evSettings = null) 
   if (hasEvSoc) {
     datasets.push({
       label: "EV SoC (%)",
-      data: rows.map(r => r.ev_soc_percent ?? 0),
+      // The expected SoC with predicted trips drawn in, when there is a trip prediction.
+      data: rows.map(r => r.ev_soc_forecast_percent ?? r.ev_soc_percent ?? 0),
       borderColor: SOLUTION_COLORS.ev_charge,
       backgroundColor: makeSocGradient(SOLUTION_COLORS.ev_charge),
       fill: 'origin',

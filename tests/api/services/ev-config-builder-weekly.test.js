@@ -78,13 +78,14 @@ describe('buildEvConfig — weekly schedule', () => {
   it('turns an arrival without SoC into a trip return when the usage can be predicted', () => {
     // Plugged in now; the Wednesday window ends Thursday 07:00, the next one opens Thursday 18:00.
     const plans = [{ weekdays: [3, 4], start: '18:00', end: '07:00', soc_percent: 80, ess_soc_percent: 100 }];
-    const usagePrediction = { byWeekday: [null, null, null, null, 20, null, null], overall: 15, trips: 6 };
+    const usagePrediction = { byWeekday: [null, null, null, null, 16, null, null], overall: 10, trips: 6, days: 14 };
     const state = { pluggedIn: true, soc_percent: 40 };
     const cfg = buildEvConfig({ ...base, evWeeklySchedule: plans }, [], state, NOW_MS, T, { usagePrediction });
     const thursday = cfg.availabilityWindows.find((w) => w.startSlot === slotOf(local(2026, 10, 15, 18)));
-    // A trip leaving Thursday 07:00 uses 20% of 60 kWh: a drop, not a reset to the sensor SoC.
+    // Away Thursday 07:00-18:00: 11 of the 16 driving hours of a 16%-a-day Thursday, so 11% of
+    // 60 kWh comes off: a drop, not a reset to the sensor SoC.
     expect(thursday.resetSoc_Wh).toBeUndefined();
-    expect(thursday.drop_Wh).toBeCloseTo(12000, 6);
+    expect(thursday.drop_Wh).toBeCloseTo(0.11 * 60000, 6);
     // Without a prediction the window resets to the last sensor reading, as before.
     const plain = buildEvConfig({ ...base, evWeeklySchedule: plans }, [], state, NOW_MS, T);
     expect(plain.availabilityWindows.find((w) => w.startSlot === thursday.startSlot).resetSoc_Wh).toBe(24000);

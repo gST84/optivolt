@@ -396,6 +396,10 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
       Number.isFinite(cfg.ev.evInitialSoc_percent) ? cfg.ev.evInitialSoc_percent : null,
     )
     : [];
+  // Only with a trip prediction does the expected SoC say more than the plan's own EV SoC.
+  if (evUsage.status === 'ok') {
+    rowsWithDess.forEach((row, i) => { if (evSocForecast[i] != null) row.ev_soc_forecast_percent = evSocForecast[i]; });
+  }
 
   const rebalanceCtx = rebalanceOn ? {
     enabled: true,
