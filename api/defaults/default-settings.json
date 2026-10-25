@@ -40,6 +40,8 @@
   "evEssSocFloor_percent": 0,
   "evWeeklyCheapestSource": false,
   "evPredictTripUsage": false,
+  "evOverrideEnabled": false,
+  "evOverrideCurrent_A": 16,
   "extendedHorizonDays": 0,
   "priceForecastUrl": ""
 }

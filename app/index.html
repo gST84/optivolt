@@ -993,6 +993,27 @@
             <span class="toggle-knob"></span>
             <span class="text-sm text-slate-600 dark:text-slate-400">Enable EV charging</span>
           </label>
+          <!-- Manual override: charge now at a chosen current, whatever the plan says -->
+          <div class="rounded-lg border border-slate-200/70 dark:border-white/10 p-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <label class="toggle">
+                <input id="ev-override-enabled" type="checkbox" data-settings-input>
+                <span class="toggle-knob"></span>
+                <span class="text-sm">Charge now</span>
+              </label>
+              <label class="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-400">
+                <input id="ev-override-current" type="number" min="1" step="1"
+                  class="form-input !mt-0 w-16" data-settings-input aria-label="Override charge current (A)" />
+                A
+              </label>
+            </div>
+            <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Overrules the plan: <code>/ev/current</code> reports this current (mode <code>fixed</code>,
+              <code>override_active: true</code>) and the plan charges the car at it from now on,
+              outside the weekly windows and below the home battery floor too, up to the EV charge
+              limit. Stays on until you switch it off.
+            </p>
+          </div>
           <!-- Schedule: a list of arrival / departure / target entries -->
           <div class="rounded-lg border border-slate-200/70 dark:border-white/10 p-3">
             <div class="mb-2 flex items-center justify-between">

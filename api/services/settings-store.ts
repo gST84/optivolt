@@ -18,7 +18,7 @@ const NUMERIC_FIELDS: (keyof Settings)[] = [
   'terminalSocCustomPrice_cents_per_kWh', 'rebalanceHoldHours', 'rebalanceEveryWeeks',
   'evMinChargeCurrent_A', 'evMaxChargeCurrent_A', 'evBatteryCapacity_kWh',
   'evChargeEfficiency_percent', 'evMaxSoc_percent', 'evSocValue_cents_per_kWh',
-  'evTripSocBuffer_percent', 'evEssSocFloor_percent',
+  'evTripSocBuffer_percent', 'evEssSocFloor_percent', 'evOverrideCurrent_A',
   'extendedHorizonDays',
 ];
 
@@ -40,7 +40,7 @@ const EFFICIENCY_FIELDS: (keyof Settings)[] = [
 ];
 
 const BOOLEAN_FIELDS: (keyof Settings)[] = [
-  'blockFeedInOnNegativePrices', 'rebalanceEnabled', 'evEnabled', 'evWeeklyCheapestSource', 'evPredictTripUsage',
+  'blockFeedInOnNegativePrices', 'rebalanceEnabled', 'evEnabled', 'evWeeklyCheapestSource', 'evPredictTripUsage', 'evOverrideEnabled',
 ];
 
 const STRING_FIELDS: (keyof Settings)[] = ['haUrl', 'haToken', 'evSocSensor', 'evPlugSensor'];
@@ -134,6 +134,9 @@ function validateSettings(s: Settings): Settings {
 
   // Automatic rebalancing interval: whole weeks, 0 (off) to a year.
   s.rebalanceEveryWeeks = Math.max(0, Math.min(52, Math.round(s.rebalanceEveryWeeks)));
+
+  // The override current must be one the charger can do: within the EV current window.
+  s.evOverrideCurrent_A = Math.max(s.evMinChargeCurrent_A, Math.min(s.evMaxChargeCurrent_A, s.evOverrideCurrent_A));
 
   // Home-battery floor for non-PV EV charging; clamp to [0, 100] (0 = disabled).
   s.evEssSocFloor_percent = Math.max(0, Math.min(100, s.evEssSocFloor_percent));

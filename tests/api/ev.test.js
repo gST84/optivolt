@@ -295,4 +295,15 @@ describe('/ev/trip-presets CRUD', () => {
 
     expect((await request(app).delete('/ev/trip-presets/nope')).status).toBe(404);
   });
+
+  it('GET /ev/current reports the manual override current, even without a plan', async () => {
+    getLastPlan.mockReturnValue(null);
+    loadSettings.mockResolvedValue({ evOverrideEnabled: true, evOverrideCurrent_A: 10 });
+    const res = await request(app).get('/ev/current');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      ev_charge_A: 10, ev_charge_W: 2300, ev_charge_mode: 'fixed', is_charging: true,
+      override_active: true, plan_valid: false,
+    });
+  });
 });

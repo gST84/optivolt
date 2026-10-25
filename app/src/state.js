@@ -57,6 +57,8 @@ export function snapshotUI(els) {
     evEssSocFloor_percent: num(els.evEssSocFloor?.value),
     evWeeklyCheapestSource: !!els.evWeeklyCheapestSource?.checked,
     evPredictTripUsage: !!els.evPredictTripUsage?.checked,
+    evOverrideEnabled: !!els.evOverrideEnabled?.checked,
+    evOverrideCurrent_A: num(els.evOverrideCurrent?.value) ?? 16,
     evWeeklySchedule: readWeeklySchedule(els.evWeeklySchedule),
     evSocSensor: els.evSocSensor?.value ?? '',
     evPlugSensor: els.evPlugSensor?.value ?? '',
@@ -138,6 +140,14 @@ export function hydrateUI(els, obj = {}) {
   }
   if (els.evPredictTripUsage && obj.evPredictTripUsage != null) {
     els.evPredictTripUsage.checked = !!obj.evPredictTripUsage;
+  }
+  if (els.evOverrideEnabled && obj.evOverrideEnabled != null) {
+    els.evOverrideEnabled.checked = !!obj.evOverrideEnabled;
+  }
+  setIfDef(els.evOverrideCurrent, obj.evOverrideCurrent_A);
+  if (els.evOverrideCurrent) {
+    if (obj.evMinChargeCurrent_A != null) els.evOverrideCurrent.min = String(obj.evMinChargeCurrent_A);
+    if (obj.evMaxChargeCurrent_A != null) els.evOverrideCurrent.max = String(obj.evMaxChargeCurrent_A);
   }
   if (Array.isArray(obj.evWeeklySchedule)) renderWeeklySchedule(els, obj.evWeeklySchedule);
   setIfDef(els.evSocSensor, obj.evSocSensor);

@@ -32,6 +32,8 @@ Still the current version; everything below has shipped under it.
   home battery down to the floor (house first), from the grid only when it is
   cheaper than the battery's energy, with the home battery filled to a level per
   plan at the cheapest moments beforehand.
+- "Charge now" override on the EV tab: charge at a chosen current whatever the
+  plan says, with the plan built around it.
 - Optional EV trip usage prediction (Predictions tab), learned per weekday from
   the EV SoC and plug sensors' history in Home Assistant and subtracted at every
   arrival without its own SoC.

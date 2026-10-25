@@ -56,6 +56,32 @@ router.get('/schedule', (_req: Request, res: Response, next: NextFunction) => {
 // GET /ev/current — current time slot's EV charging decision
 router.get('/current', async (_req: Request, res: Response, next: NextFunction) => {
   try {
+    // Manual override: charge at the chosen current, whatever the plan says (or without one).
+    // Settings that cannot be read fall through to the plan.
+    let override: number | null = null;
+    try {
+      const s = await loadSettings();
+      if (s?.evOverrideEnabled) override = s.evOverrideCurrent_A;
+    } catch { /* fall through to the plan */ }
+    if (override != null) {
+      const planRow = getLastPlan()?.rows.findLast((r) => r.timestampMs <= Date.now());
+      res.json({
+        timestampMs: planRow?.timestampMs ?? null,
+        ev_charge_W: override * 230,
+        ev_charge_A: override,
+        ev_charge_mode: 'fixed',
+        g2ev_W: planRow?.g2ev ?? 0,
+        pv2ev_W: planRow?.pv2ev ?? 0,
+        b2ev_W: planRow?.b2ev ?? 0,
+        ev_soc_percent: planRow?.ev_soc_percent ?? null,
+        is_charging: true,
+        plan_valid: planRow != null,
+        override_active: true,
+        ess_floor_active: false,
+      });
+      return;
+    }
+
     const plan = getLastPlan();
     assertCondition(!!plan, 404, 'No plan computed yet');
 
@@ -120,6 +146,7 @@ router.get('/current', async (_req: Request, res: Response, next: NextFunction) 
       ev_soc_percent: row.ev_soc_percent,
       is_charging: decision.ev_charge_W > 0,
       plan_valid: true,
+      override_active: false,
     });
   } catch (error) {
     next(toHttpError(error, 500, 'Failed to read the current EV decision'));

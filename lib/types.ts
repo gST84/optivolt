@@ -96,6 +96,13 @@ export interface EvConfig {
    * window starts), so the battery is stocked at the cheapest moments before the EV draws on it.
    */
   essTargets?: SocLevel[];
+  /**
+   * Manual override (Settings.evOverrideEnabled): the EV charges at exactly `forcedCharge_W` in
+   * the first `forcedSlots` slots, regardless of prices, the weekly mask or the home battery
+   * floor. The builder sizes `forcedSlots` so the EV does not pass its charge ceiling.
+   */
+  forcedCharge_W?: number;
+  forcedSlots?: number;
   /** EV flows decided outside the solver (W per slot); when set the solver only plans around them. */
   fixedFlows?: { g2ev: number[]; pv2ev: number[]; b2ev: number[] };
 }

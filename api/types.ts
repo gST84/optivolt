@@ -75,6 +75,13 @@ export interface Settings {
    * Assistant, and subtract it at every arrival without its own SoC.
    */
   evPredictTripUsage: boolean;
+  /**
+   * Manual override: charge the EV now at `evOverrideCurrent_A`, whatever the plan would do.
+   * /ev/current then reports that current, and the solver plans around it. Stays on until
+   * switched off.
+   */
+  evOverrideEnabled: boolean;
+  evOverrideCurrent_A: number;
   /** Extra planning days beyond the standard day-ahead window. 0 = off (default behaviour). */
   extendedHorizonDays: number;
   /** URL of a price-forecast JSON feed (energieprijs forecast.json format). Empty = disabled. */

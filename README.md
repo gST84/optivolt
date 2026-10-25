@@ -223,6 +223,12 @@ Two EV options cover a car that charges on fixed days.
 
   The plan only sees windows inside its horizon. Set **Extra horizon (days)**
   to 2–3 so a Monday plan already prepares for Wednesday.
+- **Charge now** (EV tab, `evOverrideEnabled` / `evOverrideCurrent_A`): a
+  manual override. While on, `/ev/current` reports the chosen current with mode
+  `fixed` and `override_active: true`, whatever the plan says, and the plan
+  charges the car at that power from now on (outside the weekly windows and
+  below the home battery floor too) up to the EV charge limit, planning the
+  rest of the house around it. It stays on until switched off.
 - **EV trip usage** (Predictions tab, `evPredictTripUsage`, off by default):
   learns how much of the EV battery is used per day from the history Home
   Assistant keeps of the EV SoC and plug sensors (10 days by default, up to 56
@@ -299,7 +305,7 @@ The **API** exposes:
 - `POST /predictions/pv/forecast` — Runs the PV forecast when PV configuration is complete.
 - `POST /predictions/forecast` — Runs load and PV forecasts together, persists raw forecasts according to data-source settings, and returns adjusted forecasts.
 - `GET /predictions/forecast/now` — Same combined forecast path with recent comparison disabled.
-- `GET /ev/current` — Current time slot's EV charging decision (`ev_charge_mode`, `ev_charge_A`, source flows, EV SoC, `ess_floor_active`). Outside the current plan horizon it returns a fail-safe `off` decision with `plan_valid: false`.
+- `GET /ev/current` — Current time slot's EV charging decision (`ev_charge_mode`, `ev_charge_A`, source flows, EV SoC, `ess_floor_active`, `override_active`). Outside the current plan horizon it returns a fail-safe `off` decision with `plan_valid: false`.
 - `GET /ev/schedule` — Full per-slot EV charging schedule from the last computed plan.
 - `GET /ev/schedule-entries` — Lists active EV schedule entries (arrival, departure, target) and prunes expired ones.
 - `POST /ev/schedule-entries` — Creates an EV schedule entry.

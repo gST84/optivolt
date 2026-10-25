@@ -91,6 +91,18 @@ describe('buildEvConfig — weekly schedule', () => {
     expect(plain.availabilityWindows.find((w) => w.startSlot === thursday.startSlot).resetSoc_Wh).toBe(24000);
   });
 
+  it('forces charging at the override current from now, outside the weekly window, up to the limit', () => {
+    const settings = { ...base, evWeeklySchedule: WED, evOverrideEnabled: true, evOverrideCurrent_A: 10, evMaxSoc_percent: 50 };
+    const cfg = buildEvConfig(settings, [], { pluggedIn: true, soc_percent: 40 }, NOW_MS, T);
+    // 2300 W for 15 min stores 575 Wh; 50% − 40% of 60 kWh is 6000 Wh: 10 whole slots.
+    expect(cfg.forcedCharge_W).toBe(2300);
+    expect(cfg.forcedSlots).toBe(10);
+    expect(cfg.chargeAllowed.slice(0, 10).every(Boolean)).toBe(true);
+    // Not while the car is away, and never together with cheapest-source charging.
+    expect(buildEvConfig(settings, [], { pluggedIn: false, soc_percent: 40 }, NOW_MS, T).forcedSlots).toBeUndefined();
+    expect(buildEvConfig({ ...settings, evWeeklyCheapestSource: true }, [], { pluggedIn: true, soc_percent: 40 }, NOW_MS, T).cheapestSource).toBeUndefined();
+  });
+
   it('ignores a plan without any weekday selected', () => {
     const inactive = [{ weekdays: [], start: '18:00', end: '07:00', soc_percent: 80 }];
     const cfg = buildEvConfig({ ...base, evWeeklySchedule: inactive }, [], { pluggedIn: true, soc_percent: 40 }, NOW_MS, T);

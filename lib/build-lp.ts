@@ -127,6 +127,10 @@ export function buildLP({
     }))
     .filter((w) => w.endSlot > w.startSlot)
     .sort((a, b) => a.startSlot - b.startSlot);
+  // Manual override: exact EV power in the first slots (see EvConfig.forcedCharge_W).
+  const forcedCharge_W = ev?.forcedCharge_W ?? 0;
+  const forcedSlots = forcedCharge_W > 0 && !ev?.fixedFlows ? Math.min(T, Math.max(0, ev?.forcedSlots ?? 0)) : 0;
+  const isForcedSlot = (t: number) => t < forcedSlots;
   const evAvailable: boolean[] = Array(T).fill(false);
   for (const w of evWindows) for (let t = w.startSlot; t < w.endSlot; t++) evAvailable[t] = true;
   // A charging mask (e.g. a weekly schedule) further restricts which in-window slots may charge.
@@ -359,6 +363,10 @@ export function buildLP({
       lines.push(` c_ev_max_${t}: ${gridToEv(t)} + ${pvToEv(t)} + ${batteryToEv(t)} - ${toNum(evMaxPow_W)} ${evOn(t)} <= 0`);
     }
 
+    for (let t = 0; t < forcedSlots; t++) {
+      lines.push(` c_ev_forced_${t}: ${gridToEv(t)} + ${pvToEv(t)} + ${batteryToEv(t)} = ${toNum(forcedCharge_W)}`);
+    }
+
     // Outside every availability window the EV cannot charge: forcing ev_on_t = 0 zeroes all
     // EV flows via c_ev_min/c_ev_max, so ev_soc stays flat (before arrival, after departure,
     // and in any gap between windows).
@@ -387,7 +395,7 @@ export function buildLP({
     // Home-battery floor for non-PV EV charging (see evFloorActive above).
     if (evFloorActive) {
       for (let t = 0; t < T; t++) {
-        if (!evAvailable[t]) continue;
+        if (!evAvailable[t] || isForcedSlot(t)) continue; // the manual override wins over the floor
         const gridTerm = gridExemptFromFloor(t) ? '' : `${gridToEv(t)} + `;
         lines.push(` c_ev_floor_flow_${t}: ${gridTerm}${batteryToEv(t)} - ${toNum(evMaxPow_W)} ${evGridOk(t)} <= 0`);
         lines.push(` c_ev_floor_end_${t}: ${soc(t)} - ${toNum(essFloor_Wh)} ${evGridOk(t)} >= 0`);

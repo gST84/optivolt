@@ -202,6 +202,18 @@ describe('home battery floor', () => {
     expect((rows[T - 1].ev_soc_percent / 100) * 60000).toBeCloseTo(31000, 3);
   });
 
+  it('charges at the override power in the forced slots, even below the floor', () => {
+    const cfg = {
+      ...baseCfg,
+      initialSoc_percent: 20,
+      importPrice: [50, 50, 1, 1, 1, 1, 1, 1],
+      ev: { ...baseEv, essSocFloor_Wh: 5000, forcedCharge_W: 2000, forcedSlots: 2 },
+    };
+    const rows = solve(cfg);
+    expect(rows[0].ev_charge).toBeCloseTo(2000, 3);
+    expect(rows[1].ev_charge).toBeCloseTo(2000, 3);
+  });
+
   it('still allows PV charging below the floor', () => {
     const cfg = {
       ...baseCfg,

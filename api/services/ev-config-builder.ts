@@ -106,7 +106,9 @@ export function buildEvConfig(
   // deadline-driven so that trip is not missed; weekly plans alone charge from the cheapest source.
   const hasManualDeadline = (entries ?? []).some((e) =>
     e.type === 'target' || e.type === 'trip' || (e.type === 'departure' && Number.isFinite(e.soc_percent)));
-  const cheapestSource = settings.evWeeklyCheapestSource === true && weekly.length > 0 && !hasManualDeadline;
+  // The manual override decides the charging itself, so it also turns cheapest-source charging off.
+  const cheapestSource = settings.evWeeklyCheapestSource === true && weekly.length > 0 && !hasManualDeadline
+    && !settings.evOverrideEnabled;
 
   // --- Map entries to open/close events and deadline requests (skipping beyond-horizon ones) ---
   type SweepEvent = { slot: number; kind: 'open' | 'close'; soc_percent?: number; drop_percent?: number };
@@ -322,6 +324,22 @@ export function buildEvConfig(
     .map(([slot, soc_Wh]) => ({ slot, soc_Wh }))
     .sort((a, b) => a.slot - b.slot);
 
+  // Manual override: while the car is plugged in now, charge at the chosen current from now on,
+  // for as many slots as fit under the charge ceiling, also outside the weekly windows.
+  let forced: { forcedCharge_W: number; forcedSlots: number } | null = null;
+  if (settings.evOverrideEnabled && pluggedIn && windows[0]?.startSlot === 0) {
+    const forcedCharge_W = Math.min(maxPow_W, Math.max(Math.min(minPow_W, maxPow_W), settings.evOverrideCurrent_A * 230));
+    const ceilingWh = capacityWh * ((settings.evMaxSoc_percent ?? 100) / 100);
+    const perSlot_Wh = forcedCharge_W * stepHours * efficiency;
+    const forcedSlots = perSlot_Wh > 0
+      ? Math.min(windows[0].endSlot, Math.floor(Math.max(0, ceilingWh - initialWh) / perSlot_Wh))
+      : 0;
+    if (forcedSlots > 0) {
+      forced = { forcedCharge_W, forcedSlots };
+      if (chargeAllowed) for (let t = 0; t < forcedSlots; t++) chargeAllowed[t] = true;
+    }
+  }
+
   return {
     evMinChargePower_W: Math.min(minPow_W, maxPow_W),
     evMaxChargePower_W: maxPow_W,
@@ -332,6 +350,7 @@ export function buildEvConfig(
     availabilityWindows: windows,
     targets: dedupedTargets,
     ...(chargeAllowed ? { chargeAllowed } : {}),
+    ...(forced ?? {}),
     ...(cheapestSource ? { cheapestSource, essTargets } : {}),
     ...(essFloor_percent > 0 ? { essSocFloor_Wh: (essFloor_percent / 100) * settings.batteryCapacity_Wh } : {}),
   };

@@ -103,6 +103,8 @@ export function getElements() {
     evEssSocFloor: $("#ev-ess-soc-floor"),
     evWeeklyCheapestSource: $("#ev-weekly-cheapest-source"),
     evPredictTripUsage: $("#ev-predict-trip-usage"),
+    evOverrideEnabled: $("#ev-override-enabled"),
+    evOverrideCurrent: $("#ev-override-current"),
     // Weekly charging windows
     evWeeklySchedule: $("#ev-weekly-schedule"),
     evWeeklyList: $("#ev-weekly-list"),
