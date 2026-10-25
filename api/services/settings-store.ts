@@ -4,6 +4,7 @@ import { resolveDataDir, readJson, writeJson } from './json-store.ts';
 import { bumpSolverInputsVersion } from './solver-inputs-version.ts';
 import type { Settings, DataSources } from '../types.ts';
 import type { TerminalSocValuation } from '../../lib/types.ts';
+import { normalizeWeeklySchedule } from './ev-weekly-schedule.ts';
 
 const DATA_DIR = resolveDataDir();
 const SETTINGS_PATH = path.join(DATA_DIR, 'settings.json');
@@ -14,10 +15,10 @@ const NUMERIC_FIELDS: (keyof Settings)[] = [
   'maxChargePower_W', 'maxDischargePower_W',
   'maxGridImport_W', 'maxGridExport_W', 'chargeEfficiency_percent',
   'dischargeEfficiency_percent', 'batteryCost_cent_per_kWh', 'idleDrain_W',
-  'terminalSocCustomPrice_cents_per_kWh', 'rebalanceHoldHours',
+  'terminalSocCustomPrice_cents_per_kWh', 'rebalanceHoldHours', 'rebalanceEveryWeeks',
   'evMinChargeCurrent_A', 'evMaxChargeCurrent_A', 'evBatteryCapacity_kWh',
   'evChargeEfficiency_percent', 'evMaxSoc_percent', 'evSocValue_cents_per_kWh',
-  'evTripSocBuffer_percent',
+  'evTripSocBuffer_percent', 'evEssSocFloor_percent', 'evOverrideCurrent_A',
   'extendedHorizonDays',
 ];
 
@@ -39,7 +40,7 @@ const EFFICIENCY_FIELDS: (keyof Settings)[] = [
 ];
 
 const BOOLEAN_FIELDS: (keyof Settings)[] = [
-  'blockFeedInOnNegativePrices', 'rebalanceEnabled', 'evEnabled',
+  'blockFeedInOnNegativePrices', 'rebalanceEnabled', 'evEnabled', 'evWeeklyCheapestSource', 'evPredictTripUsage', 'evOverrideEnabled',
 ];
 
 const STRING_FIELDS: (keyof Settings)[] = ['haUrl', 'haToken', 'evSocSensor', 'evPlugSensor'];
@@ -130,6 +131,21 @@ function validateSettings(s: Settings): Settings {
 
   // Trip buffer is a SoC share on top of the trip usage; clamp to a sane [0, 100].
   s.evTripSocBuffer_percent = Math.max(0, Math.min(100, s.evTripSocBuffer_percent));
+
+  // Automatic rebalancing interval: whole weeks, 0 (off) to a year.
+  s.rebalanceEveryWeeks = Math.max(0, Math.min(52, Math.round(s.rebalanceEveryWeeks)));
+
+  // The override current must be one the charger can do: within the EV current window.
+  s.evOverrideCurrent_A = Math.max(s.evMinChargeCurrent_A, Math.min(s.evMaxChargeCurrent_A, s.evOverrideCurrent_A));
+
+  // Home-battery floor for non-PV EV charging; clamp to [0, 100] (0 = disabled).
+  s.evEssSocFloor_percent = Math.max(0, Math.min(100, s.evEssSocFloor_percent));
+
+  try {
+    s.evWeeklySchedule = normalizeWeeklySchedule(s.evWeeklySchedule);
+  } catch (err) {
+    throw new SettingsValidationError(`Invalid setting: ${(err as Error).message}`);
+  }
 
   // EV charge ceiling is a share of the EV battery; clamp to [0, 100] (100 = no cap).
   s.evMaxSoc_percent = Math.max(0, Math.min(100, s.evMaxSoc_percent));

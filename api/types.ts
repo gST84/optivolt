@@ -43,6 +43,8 @@ export interface Settings {
   dataSources: DataSources;
   rebalanceEnabled: boolean;
   rebalanceHoldHours: number;
+  /** Rebalance automatically every this many weeks, the moment picked by the solver. 0 = off (manual toggle only). */
+  rebalanceEveryWeeks: number;
   haUrl: string;
   haToken: string;
   evEnabled: boolean;
@@ -55,10 +57,49 @@ export interface Settings {
   evMaxSoc_percent: number;
   evSocValue_cents_per_kWh: number;
   evTripSocBuffer_percent: number;
+  /**
+   * Recurring weekly charging windows. When non-empty, the EV only charges inside these windows
+   * and must reach each window's SoC target by its end.
+   */
+  evWeeklySchedule: EvWeeklyScheduleSlot[];
+  /** Home battery SoC below which the EV may only charge from PV. 0 = disabled. */
+  evEssSocFloor_percent: number;
+  /**
+   * Weekly plans charge from the cheapest source instead of towards a deadline: home battery
+   * energy down to the floor, grid power only when it is cheaper than the battery's energy plus
+   * wear. Off = each plan's SoC is a deadline at the window end.
+   */
+  evWeeklyCheapestSource: boolean;
+  /**
+   * Learn how much of the EV battery a trip uses from the SoC and plug sensors' history in Home
+   * Assistant, and subtract it at every arrival without its own SoC.
+   */
+  evPredictTripUsage: boolean;
+  /**
+   * Manual override: charge the EV now at `evOverrideCurrent_A`, whatever the plan would do.
+   * /ev/current then reports that current, and the solver plans around it. Stays on until
+   * switched off.
+   */
+  evOverrideEnabled: boolean;
+  evOverrideCurrent_A: number;
   /** Extra planning days beyond the standard day-ahead window. 0 = off (default behaviour). */
   extendedHorizonDays: number;
   /** URL of a price-forecast JSON feed (energieprijs forecast.json format). Empty = disabled. */
   priceForecastUrl: string;
+}
+
+/** One recurring EV charging plan (a time window on selected weekdays), in the server's local time. */
+export interface EvWeeklyScheduleSlot {
+  /** Days the window starts on: 0 = Sunday … 6 = Saturday (JS Date#getDay). Empty = inactive. */
+  weekdays: number[];
+  /** Window start, "HH:MM" (24 h). */
+  start: string;
+  /** Window end, "HH:MM"; at or before `start` means the next day. */
+  end: string;
+  /** SoC the EV charges up to in the window, in % (a ceiling, not a deadline). */
+  soc_percent: number;
+  /** SoC the home battery should have when the window starts, in %, so it can feed the EV. */
+  ess_soc_percent: number;
 }
 
 // ----------------------------- Persisted data ---------------------------
@@ -127,6 +168,8 @@ export interface Data {
   exportPriceForecast?: TimeSeries;
   soc: SocData;
   lastFullSocAt?: string | null;
+  /** When the last rebalance hold completed; the automatic schedule counts from it. */
+  lastRebalanceAt?: string | null;
   rebalanceState?: RebalanceState;
   predictionAdjustments?: PredictionAdjustment[];
   evScheduleEntries?: EvScheduleEntry[];

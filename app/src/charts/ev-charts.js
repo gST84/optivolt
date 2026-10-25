@@ -117,7 +117,7 @@ export function drawEvSocChartTab(canvas, rows, evSettings = {}) {
       labels: axis.labels,
       datasets: [{
         label: "EV SoC (%)",
-        data: rows.map(r => r.ev_soc_percent ?? 0),
+        data: rows.map(r => r.ev_soc_forecast_percent ?? r.ev_soc_percent ?? 0),
         borderColor: SOLUTION_COLORS.ev_charge,
         backgroundColor: SOLUTION_COLORS.ev_charge,
         borderWidth: 2,

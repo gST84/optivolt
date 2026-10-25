@@ -21,6 +21,22 @@ Still the current version; everything below has shipped under it.
   model and daily accuracy reporting.
 - EV charging is planned by the solver: availability windows, SoC targets and
   expected arrival, plus `/ev/current` and `/ev/schedule` for charger control.
+- Weekly EV charging windows (e.g. Wednesday and Sunday evening with a target
+  SoC) and a home battery floor below which the EV only charges from solar,
+  enforced both in the plan and live in `/ev/current`.
+- Average purchase price of the energy in the home battery, shown with the
+  energy prices chart, and a cost per planned EV charging session on the EV tab.
+- Automatic battery rebalancing every N weeks; the solver picks the cheapest
+  moment from three days before to three days after the due date.
+- Weekly EV plans charge from the cheapest source without a deadline: from the
+  home battery down to the floor (house first), from the grid only when it is
+  cheaper than the battery's energy, with the home battery filled to a level per
+  plan at the cheapest moments beforehand.
+- "Charge now" override on the EV tab: charge at a chosen current whatever the
+  plan says, with the plan built around it.
+- Optional EV trip usage prediction (Predictions tab), learned per weekday from
+  the EV SoC and plug sensors' history in Home Assistant and subtracted at every
+  arrival without its own SoC.
 - Optional extended planning horizon of up to six extra days, using forecast
   prices beyond the published day-ahead window.
 - Periodic battery rebalancing: a scheduled window that charges the pack to

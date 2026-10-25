@@ -69,6 +69,57 @@ export async function fetchHaEntityState({
   return res.json() as Promise<HaEntityState>;
 }
 
+// ----------------------------- REST: state history -----------------------------
+
+interface FetchHaHistoryOptions {
+  haUrl: string;
+  haToken: string;
+  entityIds: string[];
+  startTime: string;
+  endTime?: string;
+  timeoutMs?: number;
+}
+
+/**
+ * Fetch the recorded state changes of some entities from the HA REST history API, as
+ * { entityId: [{ t, state }] }. Only as far back as the recorder keeps them (10 days by
+ * default). In add-on mode, uses the supervisor proxy instead.
+ */
+export async function fetchHaHistory({
+  haUrl,
+  haToken,
+  entityIds,
+  startTime,
+  endTime,
+  timeoutMs = 30000,
+}: FetchHaHistoryOptions): Promise<Record<string, { t: number; state: string }[]>> {
+  const addonToken = supervisorToken();
+  const baseUrl = addonToken ? 'http://supervisor/core' : wsUrlToHttp(haUrl);
+  const token: string = addonToken ?? haToken;
+
+  const params = new URLSearchParams({ filter_entity_id: entityIds.join(',') });
+  if (endTime) params.set('end_time', endTime);
+  const url = `${baseUrl}/api/history/period/${encodeURIComponent(startTime)}?${params}&minimal_response&no_attributes`;
+  const res = await fetchWithTimeout(
+    url,
+    { headers: { Authorization: `Bearer ${token}` } },
+    { timeoutMs, label: 'Home Assistant history request' },
+  );
+  if (!res.ok) throw new Error(`HA returned ${res.status} for the history of ${entityIds.join(', ')}`);
+
+  // One array per entity; with minimal_response only the first state of each carries entity_id.
+  const body = await res.json() as { entity_id?: string; state: string; last_changed: string }[][];
+  const out: Record<string, { t: number; state: string }[]> = {};
+  for (const series of body ?? []) {
+    const entityId = series[0]?.entity_id;
+    if (!entityId) continue;
+    out[entityId] = series
+      .map((p) => ({ t: new Date(p.last_changed).getTime(), state: String(p.state) }))
+      .filter((p) => Number.isFinite(p.t));
+  }
+  return out;
+}
+
 interface FetchHaStatsOptions {
   haUrl: string;
   haToken: string;
