@@ -28,7 +28,7 @@ Guiding rules, from the brief and the repo's own conventions:
 
 ### 1.1 Data flow
 
-```
+```text
 HA automation (every 15 min) ──POST /calculate──▶ planner-service.computePlan
   ├─ vrm-refresh: prices, load/PV forecasts, SoC (VRM API); SoC also via MQTT (Venus OS)
   ├─ price-forecast-service: optional forecast feed for days beyond the day-ahead window

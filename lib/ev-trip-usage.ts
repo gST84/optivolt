@@ -38,7 +38,6 @@ const UNPLUGGED = new Set(['disconnected', 'off']);
 const MAX_ARRIVAL_READING_LAG_MS = 2 * 60 * 60 * 1000;
 /** Shorter stops are a quick unplug/replug, not a trip. */
 const MIN_TRIP_MS = 15 * 60 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
 /** A weekday needs this many days of history, the overall average this many in total. */
 const MIN_WEEKDAY_DAYS = 2;
 const MIN_DAYS = 3;
