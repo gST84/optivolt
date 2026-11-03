@@ -105,6 +105,11 @@ export function getElements() {
     evPredictTripUsage: $("#ev-predict-trip-usage"),
     evOverrideEnabled: $("#ev-override-enabled"),
     evOverrideCurrent: $("#ev-override-current"),
+    controlDryRun: $("#control-dry-run"),
+    haBindings: $("#ha-bindings"),
+    haActuators: $("#ha-actuators"),
+    bindingsInputs: $("#bindings-inputs"),
+    bindingsActuators: $("#bindings-actuators"),
     // Weekly charging windows
     evWeeklySchedule: $("#ev-weekly-schedule"),
     evWeeklyList: $("#ev-weekly-list"),

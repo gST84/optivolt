@@ -5,6 +5,7 @@ import { bumpSolverInputsVersion } from './solver-inputs-version.ts';
 import type { Settings, DataSources } from '../types.ts';
 import type { TerminalSocValuation } from '../../lib/types.ts';
 import { normalizeWeeklySchedule } from './ev-weekly-schedule.ts';
+import { normalizeActuatorBindings, normalizeInputBindings } from './bindings/normalize.ts';
 
 const DATA_DIR = resolveDataDir();
 const SETTINGS_PATH = path.join(DATA_DIR, 'settings.json');
@@ -40,7 +41,7 @@ const EFFICIENCY_FIELDS: (keyof Settings)[] = [
 ];
 
 const BOOLEAN_FIELDS: (keyof Settings)[] = [
-  'blockFeedInOnNegativePrices', 'rebalanceEnabled', 'evEnabled', 'evWeeklyCheapestSource', 'evPredictTripUsage', 'evOverrideEnabled',
+  'blockFeedInOnNegativePrices', 'rebalanceEnabled', 'evEnabled', 'evWeeklyCheapestSource', 'evPredictTripUsage', 'evOverrideEnabled', 'controlDryRun',
 ];
 
 const STRING_FIELDS: (keyof Settings)[] = ['haUrl', 'haToken', 'evSocSensor', 'evPlugSensor'];
@@ -140,6 +141,13 @@ function validateSettings(s: Settings): Settings {
 
   // Home-battery floor for non-PV EV charging; clamp to [0, 100] (0 = disabled).
   s.evEssSocFloor_percent = Math.max(0, Math.min(100, s.evEssSocFloor_percent));
+
+  try {
+    s.haBindings = normalizeInputBindings(s.haBindings);
+    s.haActuators = normalizeActuatorBindings(s.haActuators);
+  } catch (err) {
+    throw new SettingsValidationError(`Invalid setting: ${(err as Error).message}`);
+  }
 
   try {
     s.evWeeklySchedule = normalizeWeeklySchedule(s.evWeeklySchedule);

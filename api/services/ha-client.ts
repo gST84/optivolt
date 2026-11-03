@@ -69,6 +69,47 @@ export async function fetchHaEntityState({
   return res.json() as Promise<HaEntityState>;
 }
 
+// ----------------------------- REST: all states, service calls -----------------------------
+
+interface HaAuthOptions {
+  haUrl: string;
+  haToken: string;
+  timeoutMs?: number;
+}
+
+function restTarget(haUrl: string, haToken: string): { baseUrl: string; token: string } {
+  const addonToken = supervisorToken();
+  return { baseUrl: addonToken ? 'http://supervisor/core' : wsUrlToHttp(haUrl), token: addonToken ?? haToken };
+}
+
+/** Every entity's current state (GET /api/states), e.g. to offer entities in a picker. */
+export async function fetchHaStates({ haUrl, haToken, timeoutMs = 10000 }: HaAuthOptions): Promise<HaEntityState[]> {
+  const { baseUrl, token } = restTarget(haUrl, haToken);
+  const res = await fetchWithTimeout(
+    `${baseUrl}/api/states`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    { timeoutMs, label: 'Home Assistant states request' },
+  );
+  if (!res.ok) throw new Error(`HA returned ${res.status} for the list of states`);
+  return res.json() as Promise<HaEntityState[]>;
+}
+
+/** Call a Home Assistant service (POST /api/services/<domain>/<service>). */
+export async function callHaService(
+  { haUrl, haToken, timeoutMs = HA_ENTITY_TIMEOUT_MS }: HaAuthOptions,
+  domain: string,
+  service: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const { baseUrl, token } = restTarget(haUrl, haToken);
+  const res = await fetchWithTimeout(
+    `${baseUrl}/api/services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}`,
+    { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(data) },
+    { timeoutMs, label: 'Home Assistant service call' },
+  );
+  if (!res.ok) throw new Error(`HA returned ${res.status} for ${domain}.${service}`);
+}
+
 // ----------------------------- REST: state history -----------------------------
 
 interface FetchHaHistoryOptions {

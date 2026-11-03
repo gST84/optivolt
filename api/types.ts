@@ -82,10 +82,36 @@ export interface Settings {
    */
   evOverrideEnabled: boolean;
   evOverrideCurrent_A: number;
+  /** Home Assistant entities to read, per input of api/services/bindings/catalog.ts. */
+  haBindings: Record<string, HaInputBinding>;
+  /** Home Assistant entities to drive, per actuator of the catalog. */
+  haActuators: Record<string, HaActuatorBinding>;
+  /** Compute and log every actuator write, but do not send it. */
+  controlDryRun: boolean;
   /** Extra planning days beyond the standard day-ahead window. 0 = off (default behaviour). */
   extendedHorizonDays: number;
   /** URL of a price-forecast JSON feed (energieprijs forecast.json format). Empty = disabled. */
   priceForecastUrl: string;
+}
+
+/** A Home Assistant entity read for one input (see bindings/catalog.ts). */
+export interface HaInputBinding {
+  entityId: string;
+  /** Read this attribute instead of the state (e.g. a price list). */
+  attribute?: string;
+  /** Flip the sign (a net-power sensor that counts import as negative). */
+  invert?: boolean;
+}
+
+/** A Home Assistant entity driven for one actuator (see bindings/catalog.ts). */
+export interface HaActuatorBinding {
+  entityId: string;
+  /** "domain.service"; default per entity domain from the catalog. `{state}` becomes on/off. */
+  service?: string;
+  /** A number write smaller than this from the last one is skipped. */
+  deadband?: number;
+  /** At most one write per this many seconds. */
+  minWriteInterval_s?: number;
 }
 
 /** One recurring EV charging plan (a time window on selected weekdays), in the server's local time. */

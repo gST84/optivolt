@@ -944,6 +944,30 @@
           </div>
         </section>
 
+      
+        <!-- Control bindings: Home Assistant entities to read and to drive -->
+        <section class="card">
+          <div class="mb-4">
+            <h2 class="sidebar-label">Control bindings</h2>
+          </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Home Assistant entities for the control features. All are optional: a feature that
+            needs an empty one stays off. The EV SoC and plug sensors are set in the EV Charging
+            card. Nothing reads or drives these yet; later releases build on them.
+          </p>
+          <label class="toggle mt-3">
+            <input id="control-dry-run" type="checkbox" data-settings-input data-no-autosolve>
+            <span class="toggle-knob"></span>
+            <span class="text-sm">Dry run: compute and log actuator writes, send nothing</span>
+          </label>
+          <input id="ha-bindings" type="hidden" data-settings-input data-no-autosolve />
+          <input id="ha-actuators" type="hidden" data-settings-input data-no-autosolve />
+          <h3 class="mt-4 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Inputs</h3>
+          <div id="bindings-inputs" class="space-y-3"></div>
+          <h3 class="mt-5 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Actuators</h3>
+          <div id="bindings-actuators" class="space-y-3"></div>
+        </section>
+
       </div><!-- end left column -->
 
       <!-- Right column: the sensor list, which is long enough to hold a column on its own -->

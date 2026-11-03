@@ -42,6 +42,9 @@
   "evPredictTripUsage": false,
   "evOverrideEnabled": false,
   "evOverrideCurrent_A": 16,
+  "haBindings": {},
+  "haActuators": {},
+  "controlDryRun": true,
   "extendedHorizonDays": 0,
   "priceForecastUrl": ""
 }

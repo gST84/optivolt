@@ -59,6 +59,9 @@ export function snapshotUI(els) {
     evPredictTripUsage: !!els.evPredictTripUsage?.checked,
     evOverrideEnabled: !!els.evOverrideEnabled?.checked,
     evOverrideCurrent_A: num(els.evOverrideCurrent?.value) ?? 16,
+    controlDryRun: els.controlDryRun ? !!els.controlDryRun.checked : true,
+    haBindings: jsonObject(els.haBindings?.value),
+    haActuators: jsonObject(els.haActuators?.value),
     evWeeklySchedule: readWeeklySchedule(els.evWeeklySchedule),
     evSocSensor: els.evSocSensor?.value ?? '',
     evPlugSensor: els.evPlugSensor?.value ?? '',
@@ -145,6 +148,9 @@ export function hydrateUI(els, obj = {}) {
     els.evOverrideEnabled.checked = !!obj.evOverrideEnabled;
   }
   setIfDef(els.evOverrideCurrent, obj.evOverrideCurrent_A);
+  if (els.controlDryRun && obj.controlDryRun != null) els.controlDryRun.checked = !!obj.controlDryRun;
+  if (els.haBindings && obj.haBindings) els.haBindings.value = JSON.stringify(obj.haBindings);
+  if (els.haActuators && obj.haActuators) els.haActuators.value = JSON.stringify(obj.haActuators);
   if (els.evOverrideCurrent) {
     if (obj.evMinChargeCurrent_A != null) els.evOverrideCurrent.min = String(obj.evMinChargeCurrent_A);
     if (obj.evMaxChargeCurrent_A != null) els.evOverrideCurrent.max = String(obj.evMaxChargeCurrent_A);
@@ -406,6 +412,15 @@ function setIfDef(el, v) {
   const s = String(v);
   if ("value" in el) el.value = s;
   else el.textContent = s;
+}
+
+function jsonObject(val) {
+  try {
+    const parsed = JSON.parse(val || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 function num(val) {
