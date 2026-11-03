@@ -11,6 +11,7 @@ import vrmRouter from './routes/vrm.ts';
 import predictionsRouter from './routes/predictions.ts';
 import haRouter from './routes/ha.ts';
 import evRouter from './routes/ev.ts';
+import bindingsRouter from './routes/bindings.ts';
 
 const app = express();
 app.disable('x-powered-by');
@@ -27,6 +28,7 @@ app.use('/vrm', vrmRouter);
 app.use('/predictions', predictionsRouter);
 app.use('/ha', haRouter);
 app.use('/ev', evRouter);
+app.use('/bindings', bindingsRouter);
 
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ message: 'Optivolt API is running.' });

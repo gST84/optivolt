@@ -15,9 +15,14 @@ import { refreshSeriesFromVrmAndPersist } from './vrm-refresh.ts';
 import { refreshPriceForecastAndPersist } from './price-forecast-service.ts';
 import { setDynamicEssSchedule } from './mqtt-service.ts';
 import { getRebalanceNudge, recordFullSocObservation, type RebalanceNudge } from './rebalance-nudge.ts';
+import { getRebalanceSchedule } from './rebalance-schedule.ts';
+import { getEvUsageInfo, type EvUsageInfo } from './ev-usage-prediction.ts';
+import { buildEvSocForecast } from '../../lib/ev-trip-usage.ts';
 import { getSolverInputsVersion } from './solver-inputs-version.ts';
 import { solveLp } from './solve-runner.ts';
 import { buildWarmStartColumns } from '../../lib/warm-start.ts';
+import { batteryFloorsForFlows, chargeStretches, planCheapestSourceEv } from '../../lib/ev-cheapest-source.ts';
+import { estimateBatteryEnergyPrice, seedBatteryEnergyPrice, trackBatteryEnergyPrice } from '../../lib/battery-energy-price.ts';
 import type { PlanRowWithDess, Data, Settings } from '../types.ts';
 
 // How many slots we push into Dynamic ESS
@@ -42,6 +47,8 @@ export interface ComputePlanResult {
   data: Data;
   /** Wall-clock time the solve finished; lets clients judge cache freshness. */
   computedAtMs: number;
+  /** Battery energy price at the start of this plan, c€ per stored kWh; null while unknown. */
+  batteryEnergyPriceSeed: number | null;
   /** Solver-inputs version this plan was built from; see solver-inputs-version.ts. */
   inputsVersion: number;
   /**
@@ -59,6 +66,10 @@ export interface ComputePlanResult {
   summary: PlanSummary;
   rebalanceWindow?: RebalanceWindow;
   rebalanceNudge: RebalanceNudge;
+  /** What the EV trip usage learning found (status, prediction, last week's measured SoC). */
+  evUsage: EvUsageInfo;
+  /** Expected EV SoC per row, trips included (see buildEvSocForecast); empty without an EV. */
+  evSocForecast: (number | null)[];
 }
 
 function roundPower(value: number): number {
@@ -161,7 +172,7 @@ function normalizePersistedData(loadedData: Data, evState: EvLiveState | undefin
   };
 }
 
-export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnownUntilMs?: number; timing: { startMs: number; stepMin: number }; data: Data; settings: Settings }> {
+export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnownUntilMs?: number; timing: { startMs: number; stepMin: number }; data: Data; settings: Settings; evUsage: EvUsageInfo }> {
   const [settings, loadedData] = await Promise.all([loadSettings(), loadData()]);
   const startMs = getQuarterStart(new Date(), settings.stepSize_m);
 
@@ -172,20 +183,25 @@ export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnow
   const { data, changed } = normalizePersistedData(loadedData, evState, startMs);
   if (changed) await saveData(data);
 
+  const evUsage = await getEvUsageInfo(settings, startMs);
   const adjustedData = applyPredictionAdjustmentsToData(data);
-  const { cfg, pricesKnownUntilMs } = buildSolverConfigFromSettings(settings, adjustedData, startMs, evState);
-  return { cfg, pricesKnownUntilMs, timing: { startMs, stepMin: settings.stepSize_m }, data, settings };
+  const { cfg, pricesKnownUntilMs } = buildSolverConfigFromSettings(settings, adjustedData, startMs, evState, evUsage.prediction);
+  return { cfg, pricesKnownUntilMs, timing: { startMs, stepMin: settings.stepSize_m }, data, settings, evUsage };
 }
 
 /**
- * Post-solve: a completed hold cycle switches rebalancing off and clears its
- * start marker. Deliberately not pre-solve — a failed solve must never mutate
- * user settings.
+ * Post-solve: a completed hold cycle switches rebalancing off, clears its start
+ * marker and records when it finished (the automatic schedule counts from
+ * there). Deliberately not pre-solve — a failed solve must never mutate user
+ * settings.
  */
-async function finishCompletedRebalanceCycle(settings: Settings, data: Data): Promise<{ settings: Settings; data: Data }> {
-  const nextData = { ...data, rebalanceState: { startMs: null } };
+async function finishCompletedRebalanceCycle(settings: Settings, data: Data, nowMs: number): Promise<{ settings: Settings; data: Data }> {
+  const nextData = { ...data, rebalanceState: { startMs: null }, lastRebalanceAt: new Date(nowMs).toISOString() };
   const nextSettings = { ...settings, rebalanceEnabled: false };
-  await Promise.all([saveSettings(nextSettings), saveData(nextData)]);
+  await Promise.all([
+    ...(settings.rebalanceEnabled ? [saveSettings(nextSettings)] : []),
+    saveData(nextData),
+  ]);
   return { settings: nextSettings, data: nextData };
 }
 
@@ -228,17 +244,75 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
   }
 
   const solverInputs = await getSolverInputs();
-  const { cfg, pricesKnownUntilMs, timing } = solverInputs;
+  const { cfg, pricesKnownUntilMs, timing, evUsage } = solverInputs;
   let { data, settings } = solverInputs;
 
   // A just-completed hold cycle solves like any rebalance-free plan
   // (remainingSlots = 0 builds no rebalance constraints); the actual
   // switch-off happens in post-solve bookkeeping.
-  const rebalanceCycleComplete = settings.rebalanceEnabled && cfg.rebalance?.remainingSlots === 0;
+  // Rebalancing is planned when switched on by hand or by the automatic schedule (see
+  // config-builder.ts); either way cfg.rebalance is then present.
+  const rebalancePlanned = cfg.rebalance != null;
+  const rebalanceCycleComplete = rebalancePlanned && cfg.rebalance?.remainingSlots === 0;
 
   // Captured after all pre-solve persistence so a plan built from inputs that
   // are mutated later (even by our own post-solve bookkeeping) reads as stale.
   const inputsVersion = getSolverInputsVersion();
+
+  // Average purchase price of the energy in the battery, carried over from the previous plan.
+  // Kept in memory only: the first plan after a restart starts from an estimate.
+  const batteryEnergyPriceSeed = seedBatteryEnergyPrice(lastPlan && {
+    startMs: lastPlan.timing.startMs,
+    stepMin: lastPlan.timing.stepMin,
+    seed_cents_per_kWh: lastPlan.batteryEnergyPriceSeed,
+    prices: lastPlan.rows.map((r) => r.batteryEnergyPrice_cents_per_kWh),
+  }, timing.startMs) ?? estimateBatteryEnergyPrice(cfg.importPrice.map((ic) => ({ ic })), timing.stepMin);
+  // Below that price plus battery wear, grid charging the EV beats using the battery: the floor
+  // does not block it, and cheapest-source charging only takes grid power under it.
+  if (cfg.ev && (cfg.ev.essSocFloor_Wh || cfg.ev.cheapestSource) && batteryEnergyPriceSeed != null) {
+    cfg.ev = {
+      ...cfg.ev,
+      essFloorGridPriceLimit_cents_per_kWh: batteryEnergyPriceSeed + cfg.batteryCost_cent_per_kWh,
+    };
+  }
+  // Cheapest-source charging (weekly plans): the EV is not optimised. Per stretch of chargeable
+  // slots, in time order, the plan is solved with the EV flows decided so far, and the flows for
+  // that stretch are derived from the battery that plan shows; the final solve below then plans
+  // around all of them. The home battery is stocked ahead of each stretch (essTargets). These are
+  // quick solves: nothing about the EV is left for the solver to decide. If one fails, the plan
+  // falls back to deadline-driven charging.
+  if (cfg.ev?.cheapestSource) {
+    const ev = cfg.ev;
+    try {
+      const T = cfg.load_W.length;
+      // "Cheap" for stocking the battery up: the cheapest 15% of the plan's slots. The penalty is
+      // what storing a kWh at that price costs, so dearer power is not bought to reach the target,
+      // nor is the battery held back from the house at dearer hours.
+      const sortedPrices = [...cfg.importPrice].sort((x, y) => x - y);
+      const cheapPrice = sortedPrices[Math.floor((T - 1) * 0.15)];
+      const stockUpLimit = cheapPrice / (cfg.chargeEfficiency_percent / 100) + cfg.batteryCost_cent_per_kWh + 0.5;
+      const floor_Wh = Math.max(ev.essSocFloor_Wh ?? 0, (cfg.minSoc_percent / 100) * cfg.batteryCapacity_Wh);
+      // Battery targets only count for stretches whose EV flows are still open (from `fromSlot`
+      // on). Once the flows are fixed they, with the floors, already dictate what the battery
+      // must hold, and a target on top would keep the house off the battery at dear hours.
+      const withFlows = (fixedFlows: NonNullable<typeof ev.fixedFlows>, fromSlot: number): SolverConfig => ({
+        ...cfg,
+        ev: { ...ev, fixedFlows },
+        socTargets: (ev.essTargets ?? []).filter((tg) => tg.slot >= fromSlot - 1),
+        socTargetPenalty_cents_per_kWh: stockUpLimit,
+        socFloors: batteryFloorsForFlows(fixedFlows.b2ev, floor_Wh),
+      });
+      let fixedFlows = { g2ev: Array(T).fill(0), pv2ev: Array(T).fill(0), b2ev: Array(T).fill(0) };
+      for (const stretch of chargeStretches(ev, T)) {
+        const stepCfg = withFlows(fixedFlows, stretch[0]);
+        const stepRows = parseSolution(await solveLp(buildLP(stepCfg), { time_limit: SOLVE_TIME_LIMIT_S }), stepCfg, timing);
+        fixedFlows = planCheapestSourceEv(stepRows, cfg, ev, fixedFlows, stretch);
+      }
+      Object.assign(cfg, withFlows(fixedFlows, T + 1));
+    } catch (err) {
+      console.warn('[calculate] cheapest-source EV planning failed; falling back to deadline charging:', (err as Error).message);
+    }
+  }
 
   const lpText = buildLP(cfg);
   const hasRebalance = (cfg.rebalance?.remainingSlots ?? 0) > 0;
@@ -285,6 +359,9 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
 
   const rows = attachOriginalPredictionValues(parseSolution(result, cfg, timing), data);
 
+  const batteryEnergyPrices = trackBatteryEnergyPrice(rows, cfg, batteryEnergyPriceSeed);
+  rows.forEach((row, i) => { row.batteryEnergyPrice_cents_per_kWh = batteryEnergyPrices[i]; });
+
   const rebalanceWindow = extractRebalanceWindow(
     result.Columns ?? {},
     cfg.rebalance?.remainingSlots ?? 0,
@@ -300,26 +377,45 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
   // Post-solve bookkeeping — reached only when solve + parse succeeded (so a
   // failed solve never flips settings or persisted rebalance state), and only
   // when the snapshots it would persist are still the current state.
+  let rebalanceOn = rebalancePlanned;
   if (!inputsChangedDuringSolve) {
     if (rebalanceCycleComplete) {
-      ({ settings, data } = await finishCompletedRebalanceCycle(settings, data));
+      ({ settings, data } = await finishCompletedRebalanceCycle(settings, data, timing.startMs));
+      rebalanceOn = false;
     }
-    if (settings.rebalanceEnabled) {
+    if (rebalanceOn) {
       data = await recordRebalanceStartIfAtTarget(settings, data, timing.startMs);
     }
   }
 
-  const rebalanceCtx = settings.rebalanceEnabled ? {
+  const evSocForecast = cfg.ev
+    ? buildEvSocForecast(
+      rows.map((r) => r.ev_soc_percent),
+      cfg.ev.availabilityWindows,
+      cfg.ev.evBatteryCapacity_Wh,
+      Number.isFinite(cfg.ev.evInitialSoc_percent) ? cfg.ev.evInitialSoc_percent : null,
+    )
+    : [];
+  // Only with a trip prediction does the expected SoC say more than the plan's own EV SoC.
+  if (evUsage.status === 'ok') {
+    rowsWithDess.forEach((row, i) => { if (evSocForecast[i] != null) row.ev_soc_forecast_percent = evSocForecast[i]; });
+  }
+
+  const rebalanceCtx = rebalanceOn ? {
     enabled: true,
     startMs: data.rebalanceState?.startMs ?? null,
     remainingSlots: cfg.rebalance?.remainingSlots ?? 0,
   } : undefined;
 
-  const summary = buildPlanSummary(rowsWithDess, cfg, diagnostics, rebalanceCtx);
+  const summary = buildPlanSummary(rowsWithDess, cfg, diagnostics, rebalanceCtx, batteryEnergyPriceSeed);
 
-  const rebalanceNudge = getRebalanceNudge(data);
+  const nextRebalanceDueMs = getRebalanceSchedule(settings, data, timing.startMs).dueMs;
+  const rebalanceNudge: RebalanceNudge = {
+    ...getRebalanceNudge(data),
+    nextRebalanceDueAt: nextRebalanceDueMs != null ? new Date(nextRebalanceDueMs).toISOString() : null,
+  };
 
-  lastPlan = { cfg, data, computedAtMs: Date.now(), inputsVersion, inputsChangedDuringSolve, pricesKnownUntilMs: pricesKnownUntilMs ?? null, timing, result, rows: rowsWithDess, summary, rebalanceWindow, rebalanceNudge };
+  lastPlan = { cfg, data, batteryEnergyPriceSeed, computedAtMs: Date.now(), inputsVersion, inputsChangedDuringSolve, pricesKnownUntilMs: pricesKnownUntilMs ?? null, timing, result, rows: rowsWithDess, summary, rebalanceWindow, rebalanceNudge, evUsage, evSocForecast };
   return lastPlan;
 }
 
