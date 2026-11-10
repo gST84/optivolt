@@ -142,6 +142,7 @@ export function drawSocChart(canvas, rows, _stepSize_m = 15, evSettings = null) 
   const axis = buildTimeAxisFromTimestamps(timestampsMs);
 
   const hasEvSoc = rows.some(r => (r.ev_soc_percent ?? 0) > 0);
+  const hasEvFloor = rows.some(r => r.essEvFloor_percent != null);
 
   const makeSocGradient = (color) => (context) => {
     const { chart } = context;
@@ -182,6 +183,22 @@ export function drawSocChart(canvas, rows, _stepSize_m = 15, evSettings = null) 
     });
   }
 
+  if (hasEvFloor) {
+    // How far the EV may drain the home battery: minimum SoC plus the house use until the next recharge.
+    datasets.push({
+      label: "EV floor (%)",
+      data: rows.map(r => r.essEvFloor_percent ?? null),
+      borderColor: SOLUTION_COLORS.soc,
+      borderDash: [4, 4],
+      borderWidth: 1.5,
+      fill: false,
+      tension: 0,
+      pointRadius: 0,
+      hoverBorderColor: dim(SOLUTION_COLORS.soc),
+      clip: false
+    });
+  }
+
   const evPlugins = [
     makeEvAwayBandPlugin(rows, evSettings?.trips),
     makeEvArrivalPlugin(rows, evSettings?.arrivals),
@@ -195,7 +212,7 @@ export function drawSocChart(canvas, rows, _stepSize_m = 15, evSettings = null) 
     options: getBaseOptions({ ...axis, yTitle: "%" }, {
       ...getChartAnimations('line', rows.length),
       plugins: {
-        ...(hasEvSoc ? {} : { legend: { display: false } }),
+        ...(hasEvSoc || hasEvFloor ? {} : { legend: { display: false } }),
         tooltip: {
           mode: "index",
           intersect: false,

@@ -151,6 +151,14 @@ ontladen haalt energie weg zonder de gemiddelde prijs te veranderen.
 
 **Terugval** zonder sensoren: de huidige berekening uit het plan (`battery-energy-price.ts`).
 
+*Gebouwd (fase 2):* `lib/battery-ledger.ts` (grootboek: energie + kost, bijgewerkt per 5 min,
+na elke update herschaald naar de echte SoC) en `api/services/battery-ledger-service.ts`
+(HA-statistieken, eenheden W/kW, opslag als `batteryLedger` in `data.json`). Bij de eerste keer
+start het grootboek bij het begin van de opgeslagen prijsreeks (max. 24 h terug), met de
+prijs uit het vorige plan of de schatting. Een grootboek ouder dan 6 h wordt niet gebruikt. De
+bron staat in het plan als `batteryEnergyPriceSource` (`ha` / `plan` / `estimate`) en als
+tooltip op de prijs.
+
 ## 6. EV-regels
 
 ### 6.1 ESS-ondergrens voor de EV
@@ -166,6 +174,10 @@ ondergrens_Wh = minSoc_VRM_Wh
 - Wordt elk kwartier herberekend (verbruik en plan schuiven mee).
 - De vaste ondergrens `evEssSocFloor_percent` blijft als *minimum* bestaan:
   `ondergrens = max(vast, dynamisch)`.
+
+*Gebouwd (fase 2):* `lib/ess-ev-floor.ts`, per kwartier berekend uit het opgeloste plan en
+getoond als stippellijn "EV floor" op de SoC-grafiek (`essEvFloor_percent` per rij). De EV-regels
+gebruiken hem vanaf fase 3.
 
 ### 6.2 Bronkeuze per kwartier
 

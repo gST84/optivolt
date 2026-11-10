@@ -74,6 +74,12 @@ export function validateData(d: Data): Data {
       validateEvPlan(plan);
     }
   }
+  if (d.batteryLedger !== undefined) {
+    const l = d.batteryLedger;
+    if (!l || typeof l !== 'object' || ![l.energy_Wh, l.cost_cents, l.updatedAtMs].every(Number.isFinite)) {
+      throw new Error('Invalid batteryLedger: energy_Wh, cost_cents and updatedAtMs must be finite numbers');
+    }
+  }
   if (d.evLastState !== undefined) {
     const s = d.evLastState;
     if (!s || typeof s !== 'object' || typeof s.pluggedIn !== 'boolean') {

@@ -1,6 +1,7 @@
 import type { TimeSeries, PlanRow, DessSlot, TerminalSocValuation } from '../lib/types.ts';
 import type { DayFilter, Aggregation } from '../lib/load-predictor-historical.ts';
 import type { HaSensor, HaDerivedSensor } from '../lib/ha-postprocess.ts';
+import type { BatteryLedger } from '../lib/battery-ledger.ts';
 
 export type { TimeSeries };
 
@@ -269,6 +270,8 @@ export interface Data {
   evPlans?: EvPlan[];
   evTripPresets?: EvTripPreset[];
   evLastState?: EvLastState;
+  /** Average price of the energy in the home battery, kept from Home Assistant power sensors. */
+  batteryLedger?: BatteryLedger;
 }
 
 /** A named, reusable trip usage estimate ("Brussels commute" → 18%). */

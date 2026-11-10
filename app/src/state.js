@@ -244,6 +244,12 @@ export function updatePlanMeta(els, tsStart, tsEnd) {
   if (els.planTsEnd) els.planTsEnd.textContent = fmtPlanStamp(tsEnd, { withWeekday: true });
 }
 
+const BATTERY_PRICE_SOURCE = {
+  ha: "Measured from the Home Assistant power sensors",
+  plan: "Carried over from the previous plan",
+  estimate: "Estimated from the cheapest prices (no history yet)",
+};
+
 // Summary helper
 export function updateSummaryUI(els, summary) {
   if (!summary) {
@@ -288,6 +294,9 @@ export function updateSummaryUI(els, summary) {
   setText(els.sumLoadPv, formatKWh(loadFromPv_kWh));
   setText(els.avgImport, formatCentsPerKWh(avgImportPrice_cents_per_kWh));
   setText(els.batteryEnergyPrice, formatCentsPerKWh(summary.batteryEnergyPrice_cents_per_kWh));
+  if (els.batteryEnergyPrice) {
+    els.batteryEnergyPrice.title = BATTERY_PRICE_SOURCE[summary.batteryEnergyPriceSource] ?? "";
+  }
   setText(els.netCost, formatCostCents(netGridCost_cents));
   setText(els.gridBatteryTp, formatTippingPoint(gridBatteryTippingPoint_cents_per_kWh, "↓"));
   setText(els.gridChargeTp, formatTippingPoint(gridChargeTippingPoint_cents_per_kWh, "↓"));

@@ -24,6 +24,8 @@ import { buildWarmStartColumns } from '../../lib/warm-start.ts';
 import { batteryFloorsForFlows, chargeStretches, planCheapestSourceEv } from '../../lib/ev-cheapest-source.ts';
 import { estimateBatteryEnergyPrice, seedBatteryEnergyPrice, trackBatteryEnergyPrice } from '../../lib/battery-energy-price.ts';
 import type { PlanRowWithDess, Data, Settings } from '../types.ts';
+import { currentLedgerPrice, refreshBatteryLedgerAndPersist } from './battery-ledger-service.ts';
+import { computeDynamicEssFloor } from '../../lib/ess-ev-floor.ts';
 
 // How many slots we push into Dynamic ESS
 const DESS_SLOTS = 4;
@@ -241,6 +243,23 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
         forecastError instanceof Error ? forecastError.message : String(forecastError),
       );
     }
+    try {
+      // No-op unless the grid, PV and battery power sensors are set. Before the inputs version is
+      // captured, so persisting the ledger does not mark this plan as stale.
+      const nowMs = Date.now();
+      const planSeed = lastPlan ? seedBatteryEnergyPrice({
+        startMs: lastPlan.timing.startMs,
+        stepMin: lastPlan.timing.stepMin,
+        seed_cents_per_kWh: lastPlan.batteryEnergyPriceSeed,
+        prices: lastPlan.rows.map((r) => r.batteryEnergyPrice_cents_per_kWh),
+      }, getQuarterStart(nowMs, lastPlan.timing.stepMin)) : null;
+      await refreshBatteryLedgerAndPersist(planSeed, nowMs);
+    } catch (ledgerError) {
+      console.error(
+        'Failed to update the battery energy ledger from Home Assistant:',
+        ledgerError instanceof Error ? ledgerError.message : String(ledgerError),
+      );
+    }
   }
 
   const solverInputs = await getSolverInputs();
@@ -259,14 +278,20 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
   // are mutated later (even by our own post-solve bookkeeping) reads as stale.
   const inputsVersion = getSolverInputsVersion();
 
-  // Average purchase price of the energy in the battery, carried over from the previous plan.
-  // Kept in memory only: the first plan after a restart starts from an estimate.
-  const batteryEnergyPriceSeed = seedBatteryEnergyPrice(lastPlan && {
+  // Average purchase price of the energy in the battery: measured from Home Assistant when the
+  // power sensors are set (docs/design-ev-charging.md § 5), else carried over from the previous
+  // plan (in memory only), else estimated for the first plan after a restart.
+  const haBatteryPrice = currentLedgerPrice(settings, data);
+  const planBatteryPrice = seedBatteryEnergyPrice(lastPlan && {
     startMs: lastPlan.timing.startMs,
     stepMin: lastPlan.timing.stepMin,
     seed_cents_per_kWh: lastPlan.batteryEnergyPriceSeed,
     prices: lastPlan.rows.map((r) => r.batteryEnergyPrice_cents_per_kWh),
-  }, timing.startMs) ?? estimateBatteryEnergyPrice(cfg.importPrice.map((ic) => ({ ic })), timing.stepMin);
+  }, timing.startMs);
+  const batteryEnergyPriceSource: 'ha' | 'plan' | 'estimate' =
+    haBatteryPrice != null ? 'ha' : planBatteryPrice != null ? 'plan' : 'estimate';
+  const batteryEnergyPriceSeed = haBatteryPrice ?? planBatteryPrice
+    ?? estimateBatteryEnergyPrice(cfg.importPrice.map((ic) => ({ ic })), timing.stepMin);
   // Below that price plus battery wear, grid charging the EV beats using the battery: the floor
   // does not block it, and cheapest-source charging only takes grid power under it.
   if (cfg.ev && (cfg.ev.essSocFloor_Wh || cfg.ev.cheapestSource) && batteryEnergyPriceSeed != null) {
@@ -362,6 +387,20 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
   const batteryEnergyPrices = trackBatteryEnergyPrice(rows, cfg, batteryEnergyPriceSeed);
   rows.forEach((row, i) => { row.batteryEnergyPrice_cents_per_kWh = batteryEnergyPrices[i]; });
 
+  // How far the EV may drain the home battery at each slot (shown for now; the EV rules use it
+  // from design phase 3 on).
+  if (settings.evEnabled) {
+    const floors = computeDynamicEssFloor(rows, {
+      stepSize_m: cfg.stepSize_m,
+      batteryCapacity_Wh: cfg.batteryCapacity_Wh,
+      minSoc_percent: cfg.minSoc_percent,
+      dischargeEfficiency_percent: cfg.dischargeEfficiency_percent,
+      fixedFloor_percent: settings.evEssSocFloor_percent,
+      margin_Wh: settings.evEssFloorMargin_kWh * 1000,
+    });
+    rows.forEach((row, i) => { row.essEvFloor_percent = (floors[i] / cfg.batteryCapacity_Wh) * 100; });
+  }
+
   const rebalanceWindow = extractRebalanceWindow(
     result.Columns ?? {},
     cfg.rebalance?.remainingSlots ?? 0,
@@ -408,6 +447,7 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
   } : undefined;
 
   const summary = buildPlanSummary(rowsWithDess, cfg, diagnostics, rebalanceCtx, batteryEnergyPriceSeed);
+  summary.batteryEnergyPriceSource = batteryEnergyPriceSource;
 
   const nextRebalanceDueMs = getRebalanceSchedule(settings, data, timing.startMs).dueMs;
   const rebalanceNudge: RebalanceNudge = {

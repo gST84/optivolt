@@ -197,6 +197,11 @@ export interface PlanRow {
   ec: number;  // export price c€/kWh
   /** Average purchase price of the energy in the battery at the end of the slot, c€ per stored kWh; null while unknown. */
   batteryEnergyPrice_cents_per_kWh?: number | null;
+  /**
+   * Home battery SoC the EV may drain the battery down to at this slot: minimum SoC plus the house
+   * use until the next recharge (docs/design-ev-charging.md § 6.1). Only with EV charging on.
+   */
+  essEvFloor_percent?: number;
   g2l: number;   // grid → load W
   g2b: number;   // grid → battery W
   pv2l: number;  // PV → load W
@@ -286,6 +291,8 @@ export interface PlanSummary {
   evChargeEffectiveRate_cents_per_kWh: number | null;
   /** Average purchase price of the energy in the battery at the start of the plan, c€ per stored kWh; null while unknown. */
   batteryEnergyPrice_cents_per_kWh: number | null;
+  /** Where that price comes from: measured in Home Assistant, carried over from the previous plan, or estimated. */
+  batteryEnergyPriceSource?: 'ha' | 'plan' | 'estimate';
   /** Planned EV charging sessions with their cost. */
   evSessions: EvSessionSummary[];
 }
