@@ -4,6 +4,7 @@ import { resolveDataDir, readJson, writeJson } from './json-store.ts';
 import { bumpSolverInputsVersion } from './solver-inputs-version.ts';
 import type { Settings, DataSources } from '../types.ts';
 import type { TerminalSocValuation } from '../../lib/types.ts';
+import { normalizeWeeklySchedule } from './ev-weekly-schedule.ts';
 
 const DATA_DIR = resolveDataDir();
 const SETTINGS_PATH = path.join(DATA_DIR, 'settings.json');
@@ -14,23 +15,29 @@ const NUMERIC_FIELDS: (keyof Settings)[] = [
   'maxChargePower_W', 'maxDischargePower_W',
   'maxGridImport_W', 'maxGridExport_W', 'chargeEfficiency_percent',
   'dischargeEfficiency_percent', 'batteryCost_cent_per_kWh', 'idleDrain_W',
-  'terminalSocCustomPrice_cents_per_kWh', 'rebalanceHoldHours',
+  'terminalSocCustomPrice_cents_per_kWh', 'rebalanceHoldHours', 'rebalanceEveryWeeks',
   'evMinChargeCurrent_A', 'evMaxChargeCurrent_A', 'evBatteryCapacity_kWh',
   'evChargeEfficiency_percent', 'evMaxSoc_percent', 'evSocValue_cents_per_kWh',
-  'evTripSocBuffer_percent',
+  'evTripSocBuffer_percent', 'evEssSocFloor_percent', 'evOverrideCurrent_A',
   'extendedHorizonDays',
+  'evConsumption_kWh_per_100km', 'evVoltage_V', 'evPhaseSwitchMinInterval_m',
+  'evMinChargeDuration_m', 'evMinPauseDuration_m', 'evEssFloorMargin_kWh',
+  'evFallbackTimeout_m', 'peakMinimum_kW', 'peakMargin_kW',
 ];
 
 // Strictly positive: zero step size, capacities, hold hours, or charge currents are unusable.
 const POSITIVE_FIELDS: (keyof Settings)[] = [
   'stepSize_m', 'batteryCapacity_Wh', 'rebalanceHoldHours',
   'evMinChargeCurrent_A', 'evMaxChargeCurrent_A', 'evBatteryCapacity_kWh',
+  'evConsumption_kWh_per_100km', 'evVoltage_V', 'evFallbackTimeout_m',
 ];
 
 // Zero is a valid limit/cost (e.g. no grid export allowed); negative is not.
 const NON_NEGATIVE_FIELDS: (keyof Settings)[] = [
   'maxChargePower_W', 'maxDischargePower_W', 'maxGridImport_W', 'maxGridExport_W',
   'batteryCost_cent_per_kWh', 'idleDrain_W',
+  'evPhaseSwitchMinInterval_m', 'evMinChargeDuration_m', 'evMinPauseDuration_m',
+  'evEssFloorMargin_kWh', 'peakMinimum_kW', 'peakMargin_kW',
 ];
 
 // Efficiencies divide LP cost coefficients: zero would produce infinite costs.
@@ -39,10 +46,24 @@ const EFFICIENCY_FIELDS: (keyof Settings)[] = [
 ];
 
 const BOOLEAN_FIELDS: (keyof Settings)[] = [
-  'blockFeedInOnNegativePrices', 'rebalanceEnabled', 'evEnabled',
+  'blockFeedInOnNegativePrices', 'rebalanceEnabled', 'evEnabled', 'evWeeklyCheapestSource', 'evPredictTripUsage', 'evOverrideEnabled',
+  'evDirectIgnorePeak', 'peakUsePaidPeak',
 ];
 
-const STRING_FIELDS: (keyof Settings)[] = ['haUrl', 'haToken', 'evSocSensor', 'evPlugSensor'];
+const STRING_FIELDS: (keyof Settings)[] = [
+  'haUrl', 'haToken', 'evSocSensor', 'evPlugSensor',
+  'haGridImportPowerSensor', 'haGridExportPowerSensor', 'haPvPowerSensor',
+  'haBatteryChargePowerSensor', 'haBatteryDischargePowerSensor', 'haMonthPeakSensor',
+  'evPowerSensor', 'evOdometerSensor',
+];
+
+// Settings restricted to a fixed set of values.
+const ENUM_FIELDS: ReadonlyArray<[keyof Settings, readonly string[]]> = [
+  ['evPhaseMode', ['1', '3', 'auto']],
+  ['evDirectMode', ['fixed', 'fast_ess']],
+  ['evSlowGridMode', ['min', 'peak']],
+  ['evFallbackMode', ['stop', 'min']],
+];
 
 const TERMINAL_SOC_VALUATIONS: readonly TerminalSocValuation[] = ['zero', 'min', 'avg', 'max', 'custom'];
 
@@ -94,6 +115,16 @@ function validateSettings(s: Settings): Settings {
     }
   }
 
+  for (const [field, domain] of ENUM_FIELDS) {
+    const value = s[field];
+    if (typeof value !== 'string' || !domain.includes(value)) {
+      throw new SettingsValidationError(`Invalid setting: ${field} must be one of ${domain.join(', ')}`);
+    }
+  }
+  for (const field of STRING_FIELDS) {
+    (s as unknown as Record<string, string>)[field] = (s[field] as string).trim();
+  }
+
   if (!TERMINAL_SOC_VALUATIONS.includes(s.terminalSocValuation)) {
     throw new SettingsValidationError(
       `Invalid setting: terminalSocValuation must be one of ${TERMINAL_SOC_VALUATIONS.join(', ')}`,
@@ -131,8 +162,29 @@ function validateSettings(s: Settings): Settings {
   // Trip buffer is a SoC share on top of the trip usage; clamp to a sane [0, 100].
   s.evTripSocBuffer_percent = Math.max(0, Math.min(100, s.evTripSocBuffer_percent));
 
+  // Automatic rebalancing interval: whole weeks, 0 (off) to a year.
+  s.rebalanceEveryWeeks = Math.max(0, Math.min(52, Math.round(s.rebalanceEveryWeeks)));
+
+  // The override current must be one the charger can do: within the EV current window.
+  s.evOverrideCurrent_A = Math.max(s.evMinChargeCurrent_A, Math.min(s.evMaxChargeCurrent_A, s.evOverrideCurrent_A));
+
+  // Home-battery floor for non-PV EV charging; clamp to [0, 100] (0 = disabled).
+  s.evEssSocFloor_percent = Math.max(0, Math.min(100, s.evEssSocFloor_percent));
+
+  try {
+    s.evWeeklySchedule = normalizeWeeklySchedule(s.evWeeklySchedule);
+  } catch (err) {
+    throw new SettingsValidationError(`Invalid setting: ${(err as Error).message}`);
+  }
+
   // EV charge ceiling is a share of the EV battery; clamp to [0, 100] (100 = no cap).
   s.evMaxSoc_percent = Math.max(0, Math.min(100, s.evMaxSoc_percent));
+
+  // A margin as large as the peak target would leave nothing to charge with.
+  s.peakMargin_kW = Math.min(s.peakMargin_kW, Math.max(0, s.peakMinimum_kW - 0.1));
+  // At most four hours; a longer block or pause would make charging inflexible.
+  s.evMinChargeDuration_m = Math.min(240, s.evMinChargeDuration_m);
+  s.evMinPauseDuration_m = Math.min(240, s.evMinPauseDuration_m);
 
   // Whole days only; 6 extra days is the practical limit of the price forecast feed.
   s.extendedHorizonDays = Math.max(0, Math.min(6, Math.round(s.extendedHorizonDays)));

@@ -34,6 +34,11 @@ export function refreshVrmSettings() {
 }
 
 // --- Home Assistant ---
+export function fetchHaEntities(domains = []) {
+  const q = domains.length ? `?domains=${encodeURIComponent(domains.join(","))}` : "";
+  return getJson(`/ha/entities${q}`);
+}
+
 export function fetchHaEntityState(entityId) {
   return getJson(`/ha/entity/${encodeURIComponent(entityId)}`);
 }

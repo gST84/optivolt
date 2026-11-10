@@ -5,6 +5,7 @@ import { bumpSolverInputsVersion } from './solver-inputs-version.ts';
 import type { Data, TimeSeries } from '../types.ts';
 import { validatePredictionAdjustment } from './prediction-adjustments.ts';
 import { validateEvScheduleEntry } from './ev-schedule-entries.ts';
+import { validateEvPlan } from './ev-plans.ts';
 import { recordFullSocObservation } from './rebalance-nudge.ts';
 
 const DATA_DIR = resolveDataDir();
@@ -44,6 +45,11 @@ export function validateData(d: Data): Data {
       throw new Error(`Invalid lastFullSocAt: must be null or a valid timestamp (${d.lastFullSocAt})`);
     }
   }
+  if (d.lastRebalanceAt !== undefined && d.lastRebalanceAt !== null) {
+    if (typeof d.lastRebalanceAt !== 'string' || Number.isNaN(new Date(d.lastRebalanceAt).getTime())) {
+      throw new Error(`Invalid lastRebalanceAt: must be null or a valid timestamp (${d.lastRebalanceAt})`);
+    }
+  }
   if (d.predictionAdjustments !== undefined) {
     if (!Array.isArray(d.predictionAdjustments)) {
       throw new Error("Invalid predictionAdjustments: must be an array");
@@ -58,6 +64,20 @@ export function validateData(d: Data): Data {
     }
     for (const entry of d.evScheduleEntries) {
       validateEvScheduleEntry(entry);
+    }
+  }
+  if (d.evPlans !== undefined) {
+    if (!Array.isArray(d.evPlans)) {
+      throw new Error('Invalid evPlans: must be an array');
+    }
+    for (const plan of d.evPlans) {
+      validateEvPlan(plan);
+    }
+  }
+  if (d.batteryLedger !== undefined) {
+    const l = d.batteryLedger;
+    if (!l || typeof l !== 'object' || ![l.energy_Wh, l.cost_cents, l.updatedAtMs].every(Number.isFinite)) {
+      throw new Error('Invalid batteryLedger: energy_Wh, cost_cents and updatedAtMs must be finite numbers');
     }
   }
   if (d.evLastState !== undefined) {

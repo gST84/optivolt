@@ -47,6 +47,12 @@ export interface EvSocTarget {
   soc_Wh: number;
 }
 
+/** A home battery SoC level at the end of a slot. */
+export interface SocLevel {
+  slot: number;
+  soc_Wh: number;
+}
+
 export interface EvConfig {
   evMinChargePower_W: number;
   evMaxChargePower_W: number;
@@ -60,6 +66,45 @@ export interface EvConfig {
   availabilityWindows: EvAvailabilityWindow[];
   /** SoC deadlines layered onto the plan. Empty means no enforced target (latent charging only). */
   targets: EvSocTarget[];
+  /**
+   * Optional per-slot charging permission (length T), e.g. from a recurring weekly charging
+   * schedule. A slot marked false cannot charge even inside an availability window; the SoC
+   * chain is unaffected. Absent = every slot inside a window may charge.
+   */
+  chargeAllowed?: boolean[];
+  /**
+   * Home battery SoC floor in Wh. While the home battery is below it, the EV may only charge from
+   * PV (no grid, no battery). Enforced on both the start- and end-of-slot battery SoC.
+   * Absent or 0 = disabled.
+   */
+  essSocFloor_Wh?: number;
+  /**
+   * Exception to the floor: in slots where the import price is below this value (the average
+   * purchase price of the energy in the home battery plus battery wear) the EV may charge from
+   * the grid even while the battery is below the floor. Battery → EV stays blocked. Absent = no exception.
+   */
+  essFloorGridPriceLimit_cents_per_kWh?: number;
+  /**
+   * Cheapest-source charging (weekly plans): targets are not deadlines but a ceiling. The EV
+   * charging is not optimised but derived from a plan solved without the EV, slot by slot: from
+   * the grid when it is cheaper than `essFloorGridPriceLimit_cents_per_kWh`, otherwise from the
+   * home battery down to the floor, the house always served first. See lib/ev-cheapest-source.ts.
+   */
+  cheapestSource?: boolean;
+  /**
+   * Home battery SoC to aim for at the end of given slots (the slot before a weekly charging
+   * window starts), so the battery is stocked at the cheapest moments before the EV draws on it.
+   */
+  essTargets?: SocLevel[];
+  /**
+   * Manual override (Settings.evOverrideEnabled): the EV charges at exactly `forcedCharge_W` in
+   * the first `forcedSlots` slots, regardless of prices, the weekly mask or the home battery
+   * floor. The builder sizes `forcedSlots` so the EV does not pass its charge ceiling.
+   */
+  forcedCharge_W?: number;
+  forcedSlots?: number;
+  /** EV flows decided outside the solver (W per slot); when set the solver only plans around them. */
+  fixedFlows?: { g2ev: number[]; pv2ev: number[]; b2ev: number[] };
 }
 
 /**
@@ -102,6 +147,22 @@ export interface SolverConfig {
 
   // EV charging (optional — only present when evEnabled is true and EV is plugged in)
   ev?: EvConfig;
+
+  /** Home battery SoC to aim for at the end of given slots; missing it is penalised, not infeasible. */
+  socTargets?: SocLevel[];
+  /**
+   * Penalty per kWh short of a SoC target. It is the most the solver will pay (losses included)
+   * to store a kWh for the target, so it decides which moments count as cheap enough.
+   */
+  socTargetPenalty_cents_per_kWh?: number;
+  /** Hard lower bounds on the home battery SoC at the end of given slots. */
+  socFloors?: SocLevel[];
+  /**
+   * Capacity tariff (docs/design-ev-charging.md § 7.2): grid import above this, in W, is penalised
+   * once for the highest excess over the horizon (`peakPenalty_cents_per_kW` per kW). Absent = off.
+   */
+  peakTarget_W?: number;
+  peakPenalty_cents_per_kW?: number;
 }
 
 export interface RebalanceConfig {
@@ -140,6 +201,13 @@ export interface PlanRow {
   originalPv?: number;   // unadjusted prediction W when a manual adjustment changed the slot
   ic: number;  // import price c€/kWh
   ec: number;  // export price c€/kWh
+  /** Average purchase price of the energy in the battery at the end of the slot, c€ per stored kWh; null while unknown. */
+  batteryEnergyPrice_cents_per_kWh?: number | null;
+  /**
+   * Home battery SoC the EV may drain the battery down to at this slot: minimum SoC plus the house
+   * use until the next recharge (docs/design-ev-charging.md § 6.1). Only with EV charging on.
+   */
+  essEvFloor_percent?: number;
   g2l: number;   // grid → load W
   g2b: number;   // grid → battery W
   pv2l: number;  // PV → load W
@@ -161,7 +229,9 @@ export interface PlanRow {
   ev_charge: number;    // total EV charge power W
   ev_charge_A: number;  // charge current A (ev_charge / 230, single-phase)
   ev_charge_mode: EvChargeMode;
-  ev_soc_percent: number;  // EV SoC %
+  ev_soc_percent: number;
+  /** Expected EV SoC with predicted trip usage drawn in (lines through away gaps); only with a trip prediction. */
+  ev_soc_forecast_percent?: number;  // EV SoC %
   /** Resolved EV SoC deadline pinned at this slot, in % of the EV battery. Absent when no target lands here. */
   ev_target_soc_percent?: number;
 }
@@ -225,4 +295,46 @@ export interface PlanSummary {
   evChargeGridCost_cents: number;
   /** Grid cost spread over all EV energy (PV/battery share included), c€/kWh; null when nothing charged. */
   evChargeEffectiveRate_cents_per_kWh: number | null;
+  /** Average purchase price of the energy in the battery at the start of the plan, c€ per stored kWh; null while unknown. */
+  batteryEnergyPrice_cents_per_kWh: number | null;
+  /** Where that price comes from: measured in Home Assistant, carried over from the previous plan, or estimated. */
+  batteryEnergyPriceSource?: 'ha' | 'plan' | 'estimate';
+  /** What the plan could not do as asked. */
+  warnings?: PlanWarning[];
+  /** Planned EV charging sessions with their cost. */
+  evSessions: EvSessionSummary[];
+}
+
+/** Something the plan could not do as asked (docs/design-ev-charging.md § 9.5). */
+export type PlanWarning =
+  | {
+    type: 'ev_target_missed';
+    planId: string;
+    /** Deadline (end of the slot it must be met in). */
+    atMs: number;
+    target_percent: number;
+    expected_percent: number;
+    /** The peak target kept the grid from delivering more. */
+    limitedByPeak: boolean;
+  }
+  | { type: 'peak_over_target'; atMs: number; import_W: number; target_W: number }
+  | { type: 'ev_rules_failed'; message: string };
+
+/** One planned EV charging session: a stretch of slots in which the EV may charge. */
+export interface EvSessionSummary {
+  /** Start of the first and end of the last slot that actually charges. */
+  startMs: number;
+  endMs: number;
+  energy_kWh: number;
+  fromGrid_kWh: number;
+  fromPv_kWh: number;
+  fromBattery_kWh: number;
+  /** Grid share at the import price. */
+  gridCost_cents: number;
+  /** Battery share at the battery energy price (discharge losses included); 0 while that price is unknown. */
+  batteryCost_cents: number;
+  /** gridCost + batteryCost; PV is free. */
+  cost_cents: number;
+  /** cost_cents spread over all energy of the session, c€/kWh. */
+  rate_cents_per_kWh: number;
 }

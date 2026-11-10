@@ -142,6 +142,7 @@ export function drawSocChart(canvas, rows, _stepSize_m = 15, evSettings = null) 
   const axis = buildTimeAxisFromTimestamps(timestampsMs);
 
   const hasEvSoc = rows.some(r => (r.ev_soc_percent ?? 0) > 0);
+  const hasEvFloor = rows.some(r => r.essEvFloor_percent != null);
 
   const makeSocGradient = (color) => (context) => {
     const { chart } = context;
@@ -169,7 +170,8 @@ export function drawSocChart(canvas, rows, _stepSize_m = 15, evSettings = null) 
   if (hasEvSoc) {
     datasets.push({
       label: "EV SoC (%)",
-      data: rows.map(r => r.ev_soc_percent ?? 0),
+      // The expected SoC with predicted trips drawn in, when there is a trip prediction.
+      data: rows.map(r => r.ev_soc_forecast_percent ?? r.ev_soc_percent ?? 0),
       borderColor: SOLUTION_COLORS.ev_charge,
       backgroundColor: makeSocGradient(SOLUTION_COLORS.ev_charge),
       fill: 'origin',
@@ -177,6 +179,22 @@ export function drawSocChart(canvas, rows, _stepSize_m = 15, evSettings = null) 
       tension: 0.2,
       pointRadius: 0,
       hoverBorderColor: dim(SOLUTION_COLORS.ev_charge),
+      clip: false
+    });
+  }
+
+  if (hasEvFloor) {
+    // How far the EV may drain the home battery: minimum SoC plus the house use until the next recharge.
+    datasets.push({
+      label: "EV floor (%)",
+      data: rows.map(r => r.essEvFloor_percent ?? null),
+      borderColor: SOLUTION_COLORS.soc,
+      borderDash: [4, 4],
+      borderWidth: 1.5,
+      fill: false,
+      tension: 0,
+      pointRadius: 0,
+      hoverBorderColor: dim(SOLUTION_COLORS.soc),
       clip: false
     });
   }
@@ -194,7 +212,7 @@ export function drawSocChart(canvas, rows, _stepSize_m = 15, evSettings = null) 
     options: getBaseOptions({ ...axis, yTitle: "%" }, {
       ...getChartAnimations('line', rows.length),
       plugins: {
-        ...(hasEvSoc ? {} : { legend: { display: false } }),
+        ...(hasEvSoc || hasEvFloor ? {} : { legend: { display: false } }),
         tooltip: {
           mode: "index",
           intersect: false,
@@ -318,7 +336,19 @@ export function drawPricesStepLines(canvas, rows, _stepSize_m = 15, pricesKnownU
           borderColor: "#22c55e",
           backgroundColor: "#22c55e",
           ...commonLine
-        }
+        },
+        // Average purchase price of the energy in the battery; absent while unknown.
+        ...(rows.some(r => r.batteryEnergyPrice_cents_per_kWh != null) ? [{
+          label: "Battery energy",
+          data: rows.map(r => r.batteryEnergyPrice_cents_per_kWh ?? null),
+          borderColor: SOLUTION_COLORS.soc,
+          backgroundColor: SOLUTION_COLORS.soc,
+          stepped: true,
+          borderWidth: strokeW,
+          borderDash: [2, 3],
+          pointRadius: 0,
+          pointHitRadius: 8,
+        }] : []),
       ]
     },
     options: getBaseOptions({ ...axis, yTitle: "c€/kWh" }, {
@@ -334,6 +364,7 @@ export function drawPricesStepLines(canvas, rows, _stepSize_m = 15, pricesKnownU
               const isForecast = boundaryIdx >= 0 && idx >= boundaryIdx;
               let html = ttHeader(time, isForecast ? 'forecast' : '');
               for (const pt of (tooltip.dataPoints ?? [])) {
+                if (pt.raw == null) continue;
                 html += ttRow(pt.dataset.borderColor, pt.dataset.label, `${pt.raw.toFixed(1)} c€/kWh`);
               }
               return html;

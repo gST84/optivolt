@@ -1,5 +1,6 @@
 import { SOLUTION_COLORS } from "./charts.js";
 import { parseQuickSettingSelection, writeQuickSettingSelection } from "./optimizer-quick-settings.js";
+import { readWeeklySchedule, renderWeeklySchedule } from "./ev-weekly.js";
 
 // ---------- UI <-> settings snapshot ----------
 export function snapshotUI(els) {
@@ -38,6 +39,7 @@ export function snapshotUI(els) {
     // ALGORITHM
     rebalanceEnabled: !!els.rebalanceEnabled?.checked,
     rebalanceHoldHours: num(els.rebalanceHoldHours?.value),
+    rebalanceEveryWeeks: num(els.rebalanceEveryWeeks?.value) ?? 0,
 
     // HOME ASSISTANT
     haUrl: els.haUrl?.value ?? '',
@@ -52,8 +54,39 @@ export function snapshotUI(els) {
     evMaxSoc_percent: num(els.evMaxSoc?.value),
     evSocValue_cents_per_kWh: num(els.evSocValuation?.value),
     evTripSocBuffer_percent: num(els.evTripSocBuffer?.value),
+    evEssSocFloor_percent: num(els.evEssSocFloor?.value),
+    evWeeklyCheapestSource: !!els.evWeeklyCheapestSource?.checked,
+    evPredictTripUsage: !!els.evPredictTripUsage?.checked,
+    evOverrideEnabled: !!els.evOverrideEnabled?.checked,
+    evOverrideCurrent_A: num(els.evOverrideCurrent?.value) ?? 16,
+    evWeeklySchedule: readWeeklySchedule(els.evWeeklySchedule),
     evSocSensor: els.evSocSensor?.value ?? '',
     evPlugSensor: els.evPlugSensor?.value ?? '',
+    evPowerSensor: els.evPowerSensor?.value ?? '',
+    evOdometerSensor: els.evOdometerSensor?.value ?? '',
+    evConsumption_kWh_per_100km: num(els.evConsumption?.value),
+    evEssFloorMargin_kWh: num(els.evEssFloorMargin?.value),
+    evPhaseMode: els.evPhaseMode?.value || '1',
+    evVoltage_V: num(els.evVoltage?.value),
+    evMinChargeDuration_m: num(els.evMinChargeDuration?.value),
+    evMinPauseDuration_m: num(els.evMinPauseDuration?.value),
+    evPhaseSwitchMinInterval_m: num(els.evPhaseSwitchInterval?.value),
+    evFallbackMode: els.evFallbackMode?.value || 'min',
+    evFallbackTimeout_m: num(els.evFallbackTimeout?.value),
+    evDirectMode: els.evDirectMode?.value || 'fixed',
+    evSlowGridMode: els.evSlowGridMode?.value || 'min',
+    evDirectIgnorePeak: !!els.evDirectIgnorePeak?.checked,
+
+    // CAPACITY TARIFF + POWER SENSORS
+    peakMinimum_kW: num(els.peakMinimum?.value),
+    peakMargin_kW: num(els.peakMargin?.value),
+    peakUsePaidPeak: !!els.peakUsePaid?.checked,
+    haMonthPeakSensor: els.haMonthPeakSensor?.value ?? '',
+    haGridImportPowerSensor: els.haGridImportSensor?.value ?? '',
+    haGridExportPowerSensor: els.haGridExportSensor?.value ?? '',
+    haPvPowerSensor: els.haPvSensor?.value ?? '',
+    haBatteryChargePowerSensor: els.haBatteryChargeSensor?.value ?? '',
+    haBatteryDischargePowerSensor: els.haBatteryDischargeSensor?.value ?? '',
 
     // UI-only
     tableShowKwh: !!els.tableKwh?.checked,
@@ -102,6 +135,7 @@ export function hydrateUI(els, obj = {}) {
     els.rebalanceEnabled.checked = !!obj.rebalanceEnabled;
   }
   setIfDef(els.rebalanceHoldHours, obj.rebalanceHoldHours);
+  setIfDef(els.rebalanceEveryWeeks, obj.rebalanceEveryWeeks);
 
   // Data / extended horizon
   setIfDef(els.extendedHorizonDays, obj.extendedHorizonDays);
@@ -125,8 +159,53 @@ export function hydrateUI(els, obj = {}) {
   setIfDef(els.evMaxSoc, obj.evMaxSoc_percent);
   setIfDef(els.evSocValuation, obj.evSocValue_cents_per_kWh);
   setIfDef(els.evTripSocBuffer, obj.evTripSocBuffer_percent);
+  setIfDef(els.evEssSocFloor, obj.evEssSocFloor_percent);
+  if (els.evWeeklyCheapestSource && obj.evWeeklyCheapestSource != null) {
+    els.evWeeklyCheapestSource.checked = !!obj.evWeeklyCheapestSource;
+  }
+  if (els.evPredictTripUsage && obj.evPredictTripUsage != null) {
+    els.evPredictTripUsage.checked = !!obj.evPredictTripUsage;
+  }
+  if (els.evOverrideEnabled && obj.evOverrideEnabled != null) {
+    els.evOverrideEnabled.checked = !!obj.evOverrideEnabled;
+  }
+  setIfDef(els.evOverrideCurrent, obj.evOverrideCurrent_A);
+  if (els.evOverrideCurrent) {
+    if (obj.evMinChargeCurrent_A != null) els.evOverrideCurrent.min = String(obj.evMinChargeCurrent_A);
+    if (obj.evMaxChargeCurrent_A != null) els.evOverrideCurrent.max = String(obj.evMaxChargeCurrent_A);
+  }
+  if (Array.isArray(obj.evWeeklySchedule)) renderWeeklySchedule(els, obj.evWeeklySchedule);
   setIfDef(els.evSocSensor, obj.evSocSensor);
   setIfDef(els.evPlugSensor, obj.evPlugSensor);
+  setIfDef(els.evPowerSensor, obj.evPowerSensor);
+  setIfDef(els.evOdometerSensor, obj.evOdometerSensor);
+  setIfDef(els.evConsumption, obj.evConsumption_kWh_per_100km);
+  setIfDef(els.evEssFloorMargin, obj.evEssFloorMargin_kWh);
+  setIfDef(els.evPhaseMode, obj.evPhaseMode);
+  setIfDef(els.evVoltage, obj.evVoltage_V);
+  setIfDef(els.evMinChargeDuration, obj.evMinChargeDuration_m);
+  setIfDef(els.evMinPauseDuration, obj.evMinPauseDuration_m);
+  setIfDef(els.evPhaseSwitchInterval, obj.evPhaseSwitchMinInterval_m);
+  setIfDef(els.evFallbackMode, obj.evFallbackMode);
+  setIfDef(els.evFallbackTimeout, obj.evFallbackTimeout_m);
+  setIfDef(els.evDirectMode, obj.evDirectMode);
+  setIfDef(els.evSlowGridMode, obj.evSlowGridMode);
+  if (els.evDirectIgnorePeak && obj.evDirectIgnorePeak != null) {
+    els.evDirectIgnorePeak.checked = !!obj.evDirectIgnorePeak;
+  }
+
+  // CAPACITY TARIFF + POWER SENSORS
+  setIfDef(els.peakMinimum, obj.peakMinimum_kW);
+  setIfDef(els.peakMargin, obj.peakMargin_kW);
+  if (els.peakUsePaid && obj.peakUsePaidPeak != null) {
+    els.peakUsePaid.checked = !!obj.peakUsePaidPeak;
+  }
+  setIfDef(els.haMonthPeakSensor, obj.haMonthPeakSensor);
+  setIfDef(els.haGridImportSensor, obj.haGridImportPowerSensor);
+  setIfDef(els.haGridExportSensor, obj.haGridExportPowerSensor);
+  setIfDef(els.haPvSensor, obj.haPvPowerSensor);
+  setIfDef(els.haBatteryChargeSensor, obj.haBatteryChargePowerSensor);
+  setIfDef(els.haBatteryDischargeSensor, obj.haBatteryDischargePowerSensor);
 
   // UI-only
   if (els.tableKwh && obj.tableShowKwh != null) {
@@ -165,6 +244,12 @@ export function updatePlanMeta(els, tsStart, tsEnd) {
   if (els.planTsEnd) els.planTsEnd.textContent = fmtPlanStamp(tsEnd, { withWeekday: true });
 }
 
+const BATTERY_PRICE_SOURCE = {
+  ha: "Measured from the Home Assistant power sensors",
+  plan: "Carried over from the previous plan",
+  estimate: "Estimated from the cheapest prices (no history yet)",
+};
+
 // Summary helper
 export function updateSummaryUI(els, summary) {
   if (!summary) {
@@ -174,6 +259,7 @@ export function updateSummaryUI(els, summary) {
     setText(els.sumLoadBatt, "—");
     setText(els.sumLoadPv, "—");
     setText(els.avgImport, "—");
+    setText(els.batteryEnergyPrice, "—");
     setText(els.netCost, "—");
     setText(els.gridBatteryTp, "—");
     setText(els.gridChargeTp, "—");
@@ -207,6 +293,10 @@ export function updateSummaryUI(els, summary) {
   setText(els.sumLoadBatt, formatKWh(loadFromBattery_kWh));
   setText(els.sumLoadPv, formatKWh(loadFromPv_kWh));
   setText(els.avgImport, formatCentsPerKWh(avgImportPrice_cents_per_kWh));
+  setText(els.batteryEnergyPrice, formatCentsPerKWh(summary.batteryEnergyPrice_cents_per_kWh));
+  if (els.batteryEnergyPrice) {
+    els.batteryEnergyPrice.title = BATTERY_PRICE_SOURCE[summary.batteryEnergyPriceSource] ?? "";
+  }
   setText(els.netCost, formatCostCents(netGridCost_cents));
   setText(els.gridBatteryTp, formatTippingPoint(gridBatteryTippingPoint_cents_per_kWh, "↓"));
   setText(els.gridChargeTp, formatTippingPoint(gridChargeTippingPoint_cents_per_kWh, "↓"));
@@ -304,16 +394,29 @@ function updateRebalanceStatus(els, status) {
   }
 }
 
+const REBALANCE_DUE_FMT = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" });
+
 export function updateRebalanceNudgeUI(els, nudge) {
   const lastFullText = formatLastFullSoc(nudge?.lastFullSocAt);
   const title = `Schedule battery rebalancing. Last 100% SoC: ${lastFullText}.`;
   if (els.rebalanceToggleLabel) els.rebalanceToggleLabel.title = title;
 
+  if (els.rebalanceNext) {
+    const dueMs = nudge?.nextRebalanceDueAt ? new Date(nudge.nextRebalanceDueAt).getTime() : NaN;
+    els.rebalanceNext.classList.toggle("hidden", !Number.isFinite(dueMs));
+    if (Number.isFinite(dueMs)) {
+      const due = dueMs <= Date.now() ? "now" : `around ${REBALANCE_DUE_FMT.format(new Date(dueMs))}`;
+      els.rebalanceNext.textContent = `Next rebalance due ${due}; it runs at the cheapest moment from 3 days before to 3 days after.`;
+    }
+  }
+
   if (!els.rebalanceNudge) return;
 
   const recommended = !!nudge?.rebalanceRecommended;
   const alreadyEnabled = !!els.rebalanceEnabled?.checked;
-  const shouldShow = recommended && !alreadyEnabled;
+  // An automatic schedule already takes care of it.
+  const autoScheduled = !!nudge?.nextRebalanceDueAt;
+  const shouldShow = recommended && !alreadyEnabled && !autoScheduled;
   els.rebalanceNudge.classList.toggle("hidden", !shouldShow);
 
   if (shouldShow) {

@@ -57,7 +57,35 @@ export function updateEvPanel(els, rows, summary, stepSize_m = 15, evSettings = 
   renderEvPanel({ els, rows, summary, stepSize_m, ev });
 }
 
+const WARNING_TIME = new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+
+/** One line per plan warning (docs/design-ev-charging.md § 9.5). */
+export function describePlanWarning(w) {
+  const at = w.atMs != null ? WARNING_TIME.format(new Date(w.atMs)) : "";
+  if (w.type === "ev_target_missed") {
+    const why = w.limitedByPeak ? " — limited by the peak target" : " — not enough time or power";
+    return `EV target ${Math.round(w.target_percent)}% at ${at} not reachable: about ${Math.round(w.expected_percent)}%${why}.`;
+  }
+  if (w.type === "peak_over_target") {
+    return `Grid import of ${(w.import_W / 1000).toFixed(1)} kW at ${at} exceeds the peak target of ${(w.target_W / 1000).toFixed(1)} kW.`;
+  }
+  if (w.type === "ev_rules_failed") return `EV charging could not be planned: ${w.message}`;
+  return null;
+}
+
+function renderWarnings(el, warnings) {
+  if (!el) return;
+  const lines = (warnings ?? []).map(describePlanWarning).filter(Boolean);
+  el.replaceChildren(...lines.map((text) => {
+    const p = document.createElement("p");
+    p.textContent = text;
+    return p;
+  }));
+  el.classList.toggle("hidden", lines.length === 0);
+}
+
 function renderEvPanel({ els, rows, summary, stepSize_m, ev }) {
+  renderWarnings(els.evWarnings, summary?.warnings);
   const evTotal = summary?.evChargeTotal_kWh ?? 0;
   const hasEv = evTotal > 0;
 
@@ -93,8 +121,14 @@ function renderEvPanel({ els, rows, summary, stepSize_m, ev }) {
       { value: pv,   color: SOLUTION_COLORS.pv2ev },
     ]);
 
-    const totalCost_cents = summary.evChargeGridCost_cents ?? 0;
-    const effectiveRate = summary.evChargeEffectiveRate_cents_per_kWh ?? 0;
+    // With sessions the total also counts battery energy at the price it was bought for.
+    const sessions = summary.evSessions ?? [];
+    const totalCost_cents = sessions.length
+      ? sessions.reduce((sum, s) => sum + s.cost_cents, 0)
+      : summary.evChargeGridCost_cents ?? 0;
+    const effectiveRate = sessions.length
+      ? totalCost_cents / evTotal
+      : summary.evChargeEffectiveRate_cents_per_kWh ?? 0;
 
     if (els.evTabTotalCost) els.evTabTotalCost.textContent = `${totalCost_cents.toFixed(1)}¢`;
     if (els.evTabEffectiveRate) els.evTabEffectiveRate.textContent = `${effectiveRate.toFixed(1)}¢/kWh`;
@@ -103,6 +137,7 @@ function renderEvPanel({ els, rows, summary, stepSize_m, ev }) {
       els.evTabFreeSolar.className = `stat-value ${pv > 0.001 ? 'text-emerald-600 dark:text-emerald-400' : ''}`;
     }
 
+    renderSessions(els.evTabSessions, summary.evSessions ?? []);
     renderModeRows(els.evTabModeRows, evRows);
   }
 
@@ -120,6 +155,39 @@ function renderEvPanel({ els, rows, summary, stepSize_m, ev }) {
   }
   if (els.evSocChartTab) drawEvSocChartTab(els.evSocChartTab, planView.rows, ev);
   renderEvTable(planView.rows.filter(r => (r.ev_soc_percent ?? 0) > 0), els.evScheduleTable, stepSize_m, ev);
+}
+
+const SESSION_DAY_FMT = new Intl.DateTimeFormat("en-GB", { weekday: "short" });
+const SESSION_TIME_FMT = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+function renderSessions(container, sessions) {
+  if (!container) return;
+  container.replaceChildren(...sessions.map((s) => {
+    const li = document.createElement("li");
+    li.title = `Grid ${formatKWh(s.fromGrid_kWh)} (${(s.gridCost_cents / 100).toFixed(2)} €) · `
+      + `battery ${formatKWh(s.fromBattery_kWh)} (${(s.batteryCost_cents / 100).toFixed(2)} €) · `
+      + `PV ${formatKWh(s.fromPv_kWh)} (free)`;
+
+    const when = document.createElement("span");
+    when.className = "text-slate-500 dark:text-slate-400";
+    const start = new Date(s.startMs);
+    when.textContent = `${SESSION_DAY_FMT.format(start)} ${SESSION_TIME_FMT.format(start)}–${SESSION_TIME_FMT.format(new Date(s.endMs))}`;
+
+    const cost = document.createElement("span");
+    cost.className = "font-mono";
+    cost.textContent = `${(s.cost_cents / 100).toFixed(2)} €`;
+
+    const top = document.createElement("div");
+    top.className = "flex items-baseline justify-between gap-2";
+    top.append(when, cost);
+
+    const detail = document.createElement("div");
+    detail.className = "font-mono text-slate-400 dark:text-slate-500";
+    detail.textContent = `${formatKWh(s.energy_kWh)} · ${s.rate_cents_per_kWh.toFixed(1)}¢/kWh`;
+
+    li.append(top, detail);
+    return li;
+  }));
 }
 
 const MODE_CONFIG = [
