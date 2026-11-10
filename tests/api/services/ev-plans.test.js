@@ -94,13 +94,13 @@ describe('expandEvPlans', () => {
     expect(expandEvPlans([{ ...cheapestWed, enabled: false }], WED, WED + 86400000)).toEqual([]);
   });
 
-  it('suspends a cheapest window when a higher-priority plan falls inside it', () => {
+  it('keeps a cheapest window when another plan falls inside it (a late arrival, a trip)', () => {
     const trip = {
       id: 't', type: 'trip', enabled: true, weekdays: [], start: new Date(local(2026, 11, 12, 5)).toISOString(),
       end: new Date(local(2026, 11, 12, 20)).toISOString(), distance_km: 80, createdAt: '', updatedAt: '',
     };
     const out = expandEvPlans([cheapestWed, trip], WED, WED + 2 * 86400000);
-    expect(out.find((o) => o.planId === 'c').suspended).toBe(true);
+    expect(out.find((o) => o.planId === 'c').suspended).toBe(false);
     expect(out.find((o) => o.planId === 't').suspended).toBe(false);
   });
 

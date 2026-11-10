@@ -36,7 +36,7 @@ const els = getElements();
 let evPlans = null;
 const optimizer = createOptimizerController({
   els,
-  getEvSettings: () => evPlans?.getEvSettings() ?? null,
+  getEvAnnotations: () => evPlans?.getEvSettings() ?? null,
   // The server regenerates the stored load/PV series when the horizon changes;
   // the Predictions tab caches them, so it has to re-read.
   onForecastsRefreshed: () => reloadStoredForecasts(),

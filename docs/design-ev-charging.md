@@ -19,7 +19,7 @@ bestaande functionaliteit plus de nieuwe eisen hieronder.
 | P2 | **De EV-beslissing is een vaste regel, geen vrije keuze van de solver.** De EV-regels (§ 6) leggen per kwartier de EV-stroom en de bron vast. De LP plant de ESS, het huis en het net daaromheen. Zo zie je in het plan precies de regel terug. |
 | P3 | **Alles zacht, nooit "Infeasible".** Doelen en grenzen die niet haalbaar zijn geven een zo goed mogelijk plan plus een melding *welk* doel gemist wordt en *waarom*. Alleen fysieke grenzen zijn hard. |
 | P4 | **De capaciteitspiek blijft bij het minimum.** De gefactureerde minimumpiek (2,5 kW in Vlaanderen) is de doelgrens, met een veiligheidsmarge zodat de piek niet kruipt. |
-| P5 | **Rangorde:** Direct laden > Eenmalig plan > Terugkerend plan. Een hoger plan schort een lager plan in hetzelfde tijdvak op, het verwijdert het niet. |
+| P5 | **Rangorde:** Direct laden > deadlines > goedkoopste vensters. Direct laden schort de plannen in zijn tijd op (verwijdert ze niet). Deadlines en vensters bestaan naast elkaar: de deadline wordt eerst ingepland, het venster vult daarna aan; een aankomst of vertrek verschuift enkel wanneer de auto thuis is. |
 
 ## 3. Begrippen
 

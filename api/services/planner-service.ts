@@ -396,11 +396,20 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
         ];
       }
       let flows = emptyEvFlows(T);
+      const total = (f: typeof flows) => f.g2ev.reduce((sum, w, t) => sum + w + f.pv2ev[t] + f.b2ev[t], 0);
       for (const req of requests) {
-        const rows = await solveRows(withFlows(flows, req.fromSlot));
-        const result = applyEvRequest(rows as EvRuleRow[], ruleCtx, ev, flows, req, computeDynamicEssFloor(rows, floorOpts));
-        flows = result.flows;
-        if (result.shortfall_Wh > 0) {
+        // Second pass: once the EV draws on the battery the solver often keeps more in it than the
+        // EV-less plan did, so the rules look again on the re-solved plan and use what is left.
+        let rows: PlanRow[] = [];
+        let result: ReturnType<typeof applyEvRequest> | null = null;
+        for (let pass = 0; pass < 2; pass++) {
+          rows = await solveRows(withFlows(flows, req.fromSlot));
+          const before = total(flows);
+          result = applyEvRequest(rows as EvRuleRow[], ruleCtx, ev, flows, req, computeDynamicEssFloor(rows, floorOpts));
+          flows = result.flows;
+          if (total(flows) - before < 1) break;
+        }
+        if (result && result.shortfall_Wh > 0) {
           warnings.push({
             type: 'ev_target_missed',
             planId: req.planId,

@@ -147,7 +147,7 @@ export interface EvPlanOccurrence {
   distance_km?: number;
   ess_soc_percent?: number;
   afterFloor?: EvAfterFloor;
-  /** A higher-priority plan falls inside this window, so it does not apply (§ 2, P5). */
+  /** Reserved: occurrences are never suspended by other plans any more (always false). */
   suspended: boolean;
 }
 
@@ -170,8 +170,7 @@ function occurrenceFrom(plan: EvPlan, startMs: number, endMs: number | null): Ev
  * Expand enabled plans into the occurrences that touch [fromMs, toMs), sorted by start.
  *
  * Recurring times are local time (matching lib/time-series-utils.ts). A point event counts when
- * its time is in range; a window when it overlaps the range. A cheapest window is suspended when
- * a higher-priority occurrence (its time, or any part of a trip) falls inside it.
+ * its time is in range; a window when it overlaps the range.
  */
 export function expandEvPlans(plans: EvPlan[], fromMs: number, toMs: number): EvPlanOccurrence[] {
   if (!(toMs > fromMs)) return [];
@@ -203,19 +202,10 @@ export function expandEvPlans(plans: EvPlan[], fromMs: number, toMs: number): Ev
     }
   }
 
+  // Plans live side by side: a deadline inside a cheapest window is planned first by the rules
+  // (its request sorts first), the window fills in after it, and an arrival or departure only
+  // moves the time the car is home. Only "Charge now" puts the plans aside (planner-service.ts).
   out.sort((a, b) => a.startMs - b.startMs || a.priority - b.priority);
-
-  for (const low of out) {
-    if (low.priority !== 3 || low.endMs == null) continue;
-    const winStart = low.startMs;
-    const winEnd = low.endMs;
-    low.suspended = out.some((high) => {
-      if (high.priority >= low.priority) return false;
-      const hStart = high.startMs;
-      const hEnd = high.endMs ?? high.startMs;
-      return hStart < winEnd && hEnd > winStart;
-    });
-  }
   return out;
 }
 

@@ -40,7 +40,8 @@ function setChartPlaceholders(text) {
 export function createOptimizerController({
   els,
   services = {},
-  getEvSettings = () => null,
+  // Chart annotations for the EV (arrivals, departures, trips) from the plans; null without.
+  getEvAnnotations = () => null,
   onPlanRows = () => {},
   onForecastsRefreshed = () => {},
   refreshEvEntries = async () => {},
@@ -311,7 +312,7 @@ export function createOptimizerController({
 
   function getEvSettings() {
     if (!els.evEnabled?.checked) return null;
-    return getEvSettings();
+    return getEvAnnotations();
   }
 
   return {
