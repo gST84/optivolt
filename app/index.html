@@ -534,6 +534,10 @@
             <span class="stat-label">Based on</span>
             <span id="ev-usage-trips" class="text-sm font-medium text-ink dark:text-slate-100">--</span>
           </div>
+          <div class="summary-row">
+            <span class="stat-label" title="Learned from the odometer; trips use it instead of the consumption setting">Consumption</span>
+            <span id="ev-usage-consumption" class="text-sm font-medium text-ink dark:text-slate-100">--</span>
+          </div>
           <div id="ev-usage-days" class="grid grid-cols-4 border-t border-slate-100 dark:border-white/5"></div>
         </div>
       </section>
@@ -927,8 +931,9 @@
               <input id="ev-ess-soc-floor" type="number" min="0" max="100" step="1"
                 class="form-input" data-settings-input />
               <span class="mt-1 block text-xs text-slate-500 dark:text-slate-400">
-                Below this home battery SoC the EV only charges from solar (no battery, and no grid
-                unless the grid is cheaper than the energy in the battery plus battery wear). 0 = off.
+                The EV may take the home battery down to the minimum SoC plus the house use until the
+                next recharge (shown as "EV floor" on the SoC chart), and never below this. 0 = only
+                that dynamic floor.
               </span>
             </label>
             <label class="block text-sm">SoC sensor entity ID
@@ -1168,123 +1173,91 @@
               <span class="text-sm text-slate-600 dark:text-slate-400">Ignore the peak target</span>
             </label>
             <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
-              Overrules the plan: <code>/ev/current</code> reports this current (mode <code>fixed</code>,
-              <code>override_active: true</code>) and the plan charges the car at it from now on,
-              outside the weekly windows and below the home battery floor too, up to the EV charge
-              limit. Stays on until you switch it off.
-            </p>
+              Charges now, ahead of every plan, until the car leaves or reaches its charge limit.
+              <em>Fixed current</em> takes it from the cheapest source; <em>Fast from home battery</em>
+              uses what the battery can give above its floor, then the grid as chosen. The peak target
+              still applies unless you ignore it.</p>
           </div>
-          <!-- Schedule: a list of arrival / departure / target entries -->
+          <!-- EV plans (docs/design-ev-charging.md § 4), filled in by ev-plans.js -->
           <div class="rounded-lg border border-slate-200/70 dark:border-white/10 p-3">
             <div class="mb-2 flex items-center justify-between">
               <span class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                Schedule<span id="ev-schedule-entries-count" class="ml-1 font-normal normal-case tracking-normal text-slate-400 dark:text-slate-500"></span>
+                Plans<span id="ev-plans-count" class="ml-1 font-normal normal-case tracking-normal text-slate-400 dark:text-slate-500"></span>
               </span>
-              <button id="ev-entry-add" type="button"
-                class="text-xs font-medium text-sky-600 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300">+ Add entry</button>
-            </div>
-
-            <ul id="ev-schedule-entries-list" class="space-y-1.5"></ul>
-
-            <!-- Inline add/edit editor -->
-            <div id="ev-entry-editor" class="hidden mt-3 space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-white/10 dark:bg-slate-800/40">
-              <div class="grid grid-cols-4 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-700/60">
-                <button type="button" class="ev-entry-type rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400" data-entry-type="trip">Trip</button>
-                <button type="button" class="ev-entry-type rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400" data-entry-type="arrival">Arrival</button>
-                <button type="button" class="ev-entry-type rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400" data-entry-type="departure">Departure</button>
-                <button type="button" class="ev-entry-type rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400" data-entry-type="target">Target</button>
-              </div>
-
-              <label class="block text-sm">
-                <span id="ev-entry-time-label" class="block text-xs font-medium text-slate-400 dark:text-slate-500 mb-1 tracking-wide">Time</span>
-                <div class="flex mt-1">
-                  <input id="ev-entry-time" type="datetime-local" class="form-input flex-1 min-w-0 !mt-0 !rounded-r-none !border-r-0" step="900" />
-                  <button id="ev-entry-time-clear" type="button" title="Clear" aria-label="Clear time" class="btn-quick-set !rounded-none !border-r-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                  <button id="ev-entry-time-now" type="button" title="Set to now" aria-label="Set to now" class="btn-quick-set !rounded-none !border-r-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                      <circle cx="12" cy="12" r="9" />
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5V12l3 1.5" />
-                    </svg>
-                  </button>
-                  <button id="ev-entry-time-horizon" type="button" disabled title="Set to end of current plan" aria-label="Set to end of plan" class="btn-quick-set">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                      <path fill-rule="evenodd" clip-rule="evenodd" d="M16.5 3.75C17.3284 3.75 18 4.42157 18 5.25L18 18.75C18 19.5784 17.3284 20.25 16.5 20.25H10.5C9.67157 20.25 9 19.5784 9 18.75V15C9 14.5858 8.66421 14.25 8.25 14.25C7.83579 14.25 7.5 14.5858 7.5 15V18.75C7.5 20.4069 8.84315 21.75 10.5 21.75H16.5C18.1569 21.75 19.5 20.4069 19.5 18.75L19.5 5.25C19.5 3.59315 18.1569 2.25 16.5 2.25L10.5 2.25C8.84315 2.25 7.5 3.59315 7.5 5.25V9C7.5 9.41421 7.83578 9.75 8.25 9.75C8.66421 9.75 9 9.41421 9 9V5.25C9 4.42157 9.67157 3.75 10.5 3.75L16.5 3.75ZM11.4697 8.46967C11.1768 8.76256 11.1768 9.23744 11.4697 9.53033L13.1893 11.25L2.25 11.25C1.83578 11.25 1.5 11.5858 1.5 12C1.5 12.4142 1.83578 12.75 2.25 12.75L13.1893 12.75L11.4697 14.4697C11.1768 14.7626 11.1768 15.2374 11.4697 15.5303C11.7626 15.8232 12.2374 15.8232 12.5303 15.5303L15.5303 12.5303C15.8232 12.2374 15.8232 11.7626 15.5303 11.4697L12.5303 8.46967C12.2374 8.17678 11.7626 8.17678 11.4697 8.46967Z" />
-                    </svg>
-                  </button>
-                </div>
-              </label>
-
-              <!-- Trip only: arrival (return) time -->
-              <label id="ev-entry-end-row" class="hidden block text-sm">
-                <span class="block text-xs font-medium text-slate-400 dark:text-slate-500 mb-1 tracking-wide">Arrival</span>
-                <div class="flex mt-1">
-                  <input id="ev-entry-end-time" type="datetime-local" class="form-input flex-1 min-w-0 !mt-0 !rounded-r-none !border-r-0" step="900" />
-                  <button id="ev-entry-end-clear" type="button" title="Clear" aria-label="Clear arrival time" class="btn-quick-set !rounded-none !border-r-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                  <button id="ev-entry-end-horizon" type="button" disabled title="Set to end of current plan" aria-label="Set arrival to end of plan" class="btn-quick-set">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                      <path fill-rule="evenodd" clip-rule="evenodd" d="M16.5 3.75C17.3284 3.75 18 4.42157 18 5.25L18 18.75C18 19.5784 17.3284 20.25 16.5 20.25H10.5C9.67157 20.25 9 19.5784 9 18.75V15C9 14.5858 8.66421 14.25 8.25 14.25C7.83579 14.25 7.5 14.5858 7.5 15V18.75C7.5 20.4069 8.84315 21.75 10.5 21.75H16.5C18.1569 21.75 19.5 20.4069 19.5 18.75L19.5 5.25C19.5 3.59315 18.1569 2.25 16.5 2.25L10.5 2.25C8.84315 2.25 7.5 3.59315 7.5 5.25V9C7.5 9.41421 7.83578 9.75 8.25 9.75C8.66421 9.75 9 9.41421 9 9V5.25C9 4.42157 9.67157 3.75 10.5 3.75L16.5 3.75ZM11.4697 8.46967C11.1768 8.76256 11.1768 9.23744 11.4697 9.53033L13.1893 11.25L2.25 11.25C1.83578 11.25 1.5 11.5858 1.5 12C1.5 12.4142 1.83578 12.75 2.25 12.75L13.1893 12.75L11.4697 14.4697C11.1768 14.7626 11.1768 15.2374 11.4697 15.5303C11.7626 15.8232 12.2374 15.8232 12.5303 15.5303L15.5303 12.5303C15.8232 12.2374 15.8232 11.7626 15.5303 11.4697L12.5303 8.46967C12.2374 8.17678 11.7626 8.17678 11.4697 8.46967Z" />
-                    </svg>
-                  </button>
-                </div>
-              </label>
-
-              <label class="block text-sm">
-                <span id="ev-entry-soc-label" class="block text-xs font-medium text-slate-400 dark:text-slate-500 mb-1 tracking-wide">Target SoC (%)</span>
-                <input id="ev-entry-soc" type="number" min="0" max="100" step="1" placeholder="none" class="form-input mt-1" />
-                <span id="ev-entry-trip-hint" class="mt-1 hidden block text-xs text-slate-500 dark:text-slate-400"></span>
-              </label>
-
-              <!-- Trip only: named usage presets ("Knokke" → 35%), filled in by ev-schedule.js -->
-              <div id="ev-entry-presets" class="hidden flex-wrap items-center gap-1"></div>
-
-              <p id="ev-entry-error" class="hidden text-xs text-red-600 dark:text-red-400"></p>
-
-              <div class="flex items-center gap-2">
-                <button id="ev-entry-delete" type="button" class="hidden text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400">Delete</button>
-                <div class="ml-auto flex gap-2">
-                  <button id="ev-entry-cancel" type="button" class="rounded-md px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700">Cancel</button>
-                  <button id="ev-entry-save" type="button" class="rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700">Save</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Weekly charging: recurring plans, stored as JSON in a hidden settings input -->
-          <div class="rounded-lg border border-slate-200/70 dark:border-white/10 p-3">
-            <div class="mb-2 flex items-center justify-between">
-              <span class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Weekly charging</span>
-              <button id="ev-weekly-add" type="button"
+              <button id="ev-plan-add" type="button"
                 class="text-xs font-medium text-sky-600 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300">+ Add plan</button>
             </div>
-            <input id="ev-weekly-schedule" type="hidden" data-settings-input />
-            <ul id="ev-weekly-list" class="space-y-2"></ul>
-            <p id="ev-weekly-empty" class="text-xs text-slate-500 dark:text-slate-400">
-              No weekly plans: the EV may charge whenever it is plugged in.
+            <ul id="ev-plans-list" class="space-y-1.5"></ul>
+            <p id="ev-plans-empty" class="text-xs text-slate-500 dark:text-slate-400">
+              No plans: while plugged in, the EV only takes solar that would otherwise be exported.
             </p>
-            <label class="toggle mt-3">
-              <input id="ev-weekly-cheapest-source" type="checkbox" data-settings-input>
-              <span class="toggle-knob"></span>
-              <span class="text-sm">Charge from the cheapest source (no deadline)</span>
-            </label>
-            <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
-              Each plan is a time window repeated on the ticked days (an end before the start is the
-              next day). The EV only charges inside the windows. Normally the plan's EV SoC is a
-              deadline at the window end. With the cheapest source on, there is no deadline: the EV
-              charges from the home battery, down to the home battery floor and up to the EV limit,
-              with the house served first, and takes grid power only when that is cheaper than the
-              energy in the battery plus wear; beforehand the home battery is filled to the plan's
-              level at the cheapest moments. This suits a home battery that is large compared to the
-              household use until the next cheap period. Use an extra horizon of a few days so the
-              plan can look ahead.
-            </p>
+
+            <div id="ev-plan-editor" class="hidden mt-3 space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-white/10 dark:bg-slate-800/40">
+              <div class="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-700/60">
+                <button type="button" class="ev-plan-type rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400" data-plan-type="cheapest">Cheapest</button>
+                <button type="button" class="ev-plan-type rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400" data-plan-type="target">Target</button>
+                <button type="button" class="ev-plan-type rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400" data-plan-type="departure">Departure</button>
+                <button type="button" class="ev-plan-type rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400" data-plan-type="arrival">Arrival</button>
+                <button type="button" class="ev-plan-type rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400" data-plan-type="trip">Trip</button>
+              </div>
+              <p id="ev-plan-type-hint" class="text-xs text-slate-500 dark:text-slate-400"></p>
+
+              <div>
+                <span class="block text-xs font-medium text-slate-400 dark:text-slate-500 mb-1 tracking-wide">Repeat on (none = once)</span>
+                <div class="flex flex-wrap gap-x-3">
+                  <label class="inline-flex items-center gap-1 text-xs"><input type="checkbox" class="ev-plan-day" value="1">Mo</label> <label class="inline-flex items-center gap-1 text-xs"><input type="checkbox" class="ev-plan-day" value="2">Tu</label> <label class="inline-flex items-center gap-1 text-xs"><input type="checkbox" class="ev-plan-day" value="3">We</label> <label class="inline-flex items-center gap-1 text-xs"><input type="checkbox" class="ev-plan-day" value="4">Th</label> <label class="inline-flex items-center gap-1 text-xs"><input type="checkbox" class="ev-plan-day" value="5">Fr</label> <label class="inline-flex items-center gap-1 text-xs"><input type="checkbox" class="ev-plan-day" value="6">Sa</label> <label class="inline-flex items-center gap-1 text-xs"><input type="checkbox" class="ev-plan-day" value="0">Su</label>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <label class="block text-sm">
+                  <span id="ev-plan-start-label" class="block text-xs font-medium text-slate-400 dark:text-slate-500 mb-1 tracking-wide">Time</span>
+                  <input id="ev-plan-start" type="datetime-local" step="900" class="form-input mt-1" />
+                  <input id="ev-plan-start-time" type="time" step="900" class="form-input mt-1 hidden" />
+                </label>
+                <label id="ev-plan-end-row" class="block text-sm">
+                  <span id="ev-plan-end-label" class="block text-xs font-medium text-slate-400 dark:text-slate-500 mb-1 tracking-wide">End</span>
+                  <input id="ev-plan-end" type="datetime-local" step="900" class="form-input mt-1" />
+                  <input id="ev-plan-end-time" type="time" step="900" class="form-input mt-1 hidden" />
+                </label>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <label id="ev-plan-soc-row" class="block text-sm">
+                  <span id="ev-plan-soc-label" class="block text-xs font-medium text-slate-400 dark:text-slate-500 mb-1 tracking-wide">EV SoC (%)</span>
+                  <input id="ev-plan-soc" type="number" min="0" max="100" step="1" class="form-input mt-1" />
+                </label>
+                <label id="ev-plan-distance-row" class="block text-sm hidden">
+                  <span class="block text-xs font-medium text-slate-400 dark:text-slate-500 mb-1 tracking-wide">Distance (km)</span>
+                  <input id="ev-plan-distance" type="number" min="0" step="1" class="form-input mt-1" />
+                </label>
+              </div>
+
+              <div id="ev-plan-cheapest-row" class="grid grid-cols-2 gap-3 hidden">
+                <label class="block text-sm">
+                  <span class="block text-xs font-medium text-slate-400 dark:text-slate-500 mb-1 tracking-wide">Home battery at start (%)</span>
+                  <input id="ev-plan-ess-soc" type="number" min="0" max="100" step="1" placeholder="none" class="form-input mt-1" />
+                </label>
+                <label class="block text-sm">
+                  <span class="block text-xs font-medium text-slate-400 dark:text-slate-500 mb-1 tracking-wide">At the battery floor</span>
+                  <select id="ev-plan-after-floor" class="form-select mt-1">
+                    <option value="stop">Stop</option>
+                    <option value="grid">Continue from the grid</option>
+                  </select>
+                </label>
+              </div>
+
+              <p id="ev-plan-hint" class="hidden text-xs text-slate-500 dark:text-slate-400"></p>
+              <p id="ev-plan-error" class="hidden text-xs text-red-600 dark:text-red-400"></p>
+
+              <div class="flex items-center gap-2">
+                <button id="ev-plan-delete" type="button" class="hidden text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400">Delete</button>
+                <div class="ml-auto flex gap-2">
+                  <button id="ev-plan-cancel" type="button" class="rounded-md px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700">Cancel</button>
+                  <button id="ev-plan-save" type="button" class="rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700">Save</button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <label class="block text-sm">

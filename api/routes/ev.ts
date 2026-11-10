@@ -5,26 +5,13 @@ import { getLastPlan } from '../services/planner-service.ts';
 import { loadSettings } from '../services/settings-store.ts';
 import { loadData, saveData } from '../services/data-store.ts';
 import { decideEvCurrent, type PlanSnapshot } from '../services/ev-guard-service.ts';
-import type { EvScheduleEntryInput } from '../services/ev-schedule-entries.ts';
-import type { EvTripPresetInput } from '../services/ev-trip-preset-store.ts';
-import {
-  deleteEvTripPreset,
-  loadEvTripPresets,
-  saveEvTripPreset,
-} from '../services/ev-trip-preset-store.ts';
-import {
-  createStoredEvScheduleEntry,
-  deleteStoredEvScheduleEntry,
-  loadActiveEvScheduleEntriesAndPrune,
-  updateStoredEvScheduleEntry,
-} from '../services/ev-schedule-store.ts';
 import {
   createStoredEvPlan,
   deleteStoredEvPlan,
   loadEvPlans,
   updateStoredEvPlan,
 } from '../services/ev-plan-store.ts';
-import type { EvPlanInput } from '../services/ev-plans.ts';
+import { expandEvPlans, type EvPlanInput } from '../services/ev-plans.ts';
 
 const router = express.Router();
 
@@ -132,54 +119,6 @@ router.post('/resume', async (_req: Request, res: Response, next: NextFunction) 
   }
 });
 
-// ----------------------------- Schedule entries -------------------------
-// A list of typed (arrival/departure/target) schedule entries, persisted in data.json.
-
-router.get('/schedule-entries', async (_req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { entries } = await loadActiveEvScheduleEntriesAndPrune();
-    res.json({ entries });
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to read EV schedule entries'));
-  }
-});
-
-router.post('/schedule-entries', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    assertCondition(
-      req.body && typeof req.body === 'object' && !Array.isArray(req.body),
-      400,
-      'EV schedule entry payload must be an object',
-    );
-    const result = await createStoredEvScheduleEntry(req.body as EvScheduleEntryInput);
-    res.status(201).json(result);
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to create EV schedule entry'));
-  }
-});
-
-router.patch('/schedule-entries/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    assertCondition(
-      req.body && typeof req.body === 'object' && !Array.isArray(req.body),
-      400,
-      'EV schedule entry payload must be an object',
-    );
-    const result = await updateStoredEvScheduleEntry(String(req.params.id), req.body as EvScheduleEntryInput);
-    res.json(result);
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to update EV schedule entry'));
-  }
-});
-
-router.delete('/schedule-entries/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    res.json(await deleteStoredEvScheduleEntry(String(req.params.id)));
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to delete EV schedule entry'));
-  }
-});
-
 // ----------------------------- Plans -----------------------------------
 // EV charging plans (docs/design-ev-charging.md § 4), persisted in data.json. The first read
 // migrates the legacy schedule entries and weekly schedule.
@@ -188,9 +127,15 @@ function assertObjectBody(body: unknown): asserts body is EvPlanInput {
   assertCondition(!!body && typeof body === 'object' && !Array.isArray(body), 400, 'EV plan payload must be an object');
 }
 
+const PLAN_PREVIEW_DAYS = 8;
+
 router.get('/plans', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json({ plans: await loadEvPlans() });
+    const plans = await loadEvPlans();
+    // The concrete moments of the coming days, for the chart markers and the list.
+    const nowMs = Date.now();
+    const occurrences = expandEvPlans(plans, nowMs, nowMs + PLAN_PREVIEW_DAYS * 24 * 60 * 60 * 1000);
+    res.json({ plans, occurrences });
   } catch (error) {
     next(toHttpError(error, 500, 'Failed to read EV plans'));
   }
@@ -219,39 +164,6 @@ router.delete('/plans/:id', async (req: Request, res: Response, next: NextFuncti
     res.json(await deleteStoredEvPlan(String(req.params.id)));
   } catch (error) {
     next(toHttpError(error, 500, 'Failed to delete EV plan'));
-  }
-});
-
-// ----------------------------- Trip usage presets -----------------------
-// Named, reusable trip usage estimates ("Knokke" → 35%), persisted in data.json.
-
-router.get('/trip-presets', async (_req: Request, res: Response, next: NextFunction) => {
-  try {
-    res.json({ presets: await loadEvTripPresets() });
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to read EV trip presets'));
-  }
-});
-
-// PUT rather than POST: saving an existing name overwrites its percentage.
-router.put('/trip-presets', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    assertCondition(
-      req.body && typeof req.body === 'object' && !Array.isArray(req.body),
-      400,
-      'EV trip preset payload must be an object',
-    );
-    res.json(await saveEvTripPreset(req.body as EvTripPresetInput));
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to save EV trip preset'));
-  }
-});
-
-router.delete('/trip-presets/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    res.json(await deleteEvTripPreset(String(req.params.id)));
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to delete EV trip preset'));
   }
 });
 

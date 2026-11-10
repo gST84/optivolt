@@ -21,12 +21,11 @@ import { buildEvSocForecast } from '../../lib/ev-trip-usage.ts';
 import { getSolverInputsVersion } from './solver-inputs-version.ts';
 import { solveLp } from './solve-runner.ts';
 import { buildWarmStartColumns } from '../../lib/warm-start.ts';
-import { batteryFloorsForFlows, chargeStretches, planCheapestSourceEv } from '../../lib/ev-cheapest-source.ts';
 import { estimateBatteryEnergyPrice, seedBatteryEnergyPrice, trackBatteryEnergyPrice } from '../../lib/battery-energy-price.ts';
 import type { PlanRowWithDess, Data, Settings } from '../types.ts';
 import { currentLedgerPrice, refreshBatteryLedgerAndPersist } from './battery-ledger-service.ts';
 import { computeDynamicEssFloor } from '../../lib/ess-ev-floor.ts';
-import { applyEvRequest, applyPvSurplus, emptyEvFlows, fitDropsToFlows, type EvRuleContext, type EvRuleRow } from '../../lib/ev-rules.ts';
+import { applyEvRequest, applyPvSurplus, batteryFloorsForFlows, emptyEvFlows, fitDropsToFlows, type EvRuleContext, type EvRuleRow } from '../../lib/ev-rules.ts';
 import { loadEvPlans } from './ev-plan-store.ts';
 import { powerForCurrent } from './ev-charger.ts';
 import type { EvRuleRequestFromPlan } from './ev-plans.ts';
@@ -218,7 +217,11 @@ export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnow
 
   const evUsage = await getEvUsageInfo(settings, startMs);
   const adjustedData = applyPredictionAdjustmentsToData(data);
-  const { cfg, pricesKnownUntilMs, evRuleRequests } = buildSolverConfigFromSettings(settings, adjustedData, startMs, evState, evUsage.prediction);
+  // A consumption learned from the odometer replaces the fixed setting for trips.
+  const planSettings = evUsage.consumption_kWh_per_100km != null
+    ? { ...settings, evConsumption_kWh_per_100km: evUsage.consumption_kWh_per_100km }
+    : settings;
+  const { cfg, pricesKnownUntilMs, evRuleRequests } = buildSolverConfigFromSettings(planSettings, adjustedData, startMs, evState, evUsage.prediction);
   const peakTarget_W = await resolvePeakTarget_W(settings);
   if (peakTarget_W != null) cfg.peakTarget_W = peakTarget_W;
   return { cfg, pricesKnownUntilMs, timing: { startMs, stepMin: settings.stepSize_m }, data, settings, evUsage, evRuleRequests };
@@ -326,20 +329,6 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
     haBatteryPrice != null ? 'ha' : planBatteryPrice != null ? 'plan' : 'estimate';
   const batteryEnergyPriceSeed = haBatteryPrice ?? planBatteryPrice
     ?? estimateBatteryEnergyPrice(cfg.importPrice.map((ic) => ({ ic })), timing.stepMin);
-  // Below that price plus battery wear, grid charging the EV beats using the battery: the floor
-  // does not block it, and cheapest-source charging only takes grid power under it.
-  if (cfg.ev && (cfg.ev.essSocFloor_Wh || cfg.ev.cheapestSource) && batteryEnergyPriceSeed != null) {
-    cfg.ev = {
-      ...cfg.ev,
-      essFloorGridPriceLimit_cents_per_kWh: batteryEnergyPriceSeed + cfg.batteryCost_cent_per_kWh,
-    };
-  }
-  // Cheapest-source charging (weekly plans): the EV is not optimised. Per stretch of chargeable
-  // slots, in time order, the plan is solved with the EV flows decided so far, and the flows for
-  // that stretch are derived from the battery that plan shows; the final solve below then plans
-  // around all of them. The home battery is stocked ahead of each stretch (essTargets). These are
-  // quick solves: nothing about the EV is left for the solver to decide. If one fails, the plan
-  // falls back to deadline-driven charging.
   if (evRuleRequests && cfg.ev) {
     // EV charging as a fixed rule (docs/design-ev-charging.md § 6): request by request in time
     // order, the house plan is solved with the EV flows decided so far and the rules fix the
@@ -430,38 +419,6 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
       warnings.push({ type: 'ev_rules_failed', message: (err as Error).message });
       const none = emptyEvFlows(T);
       Object.assign(cfg, { ev: { ...ev, fixedFlows: none, availabilityWindows: fitDropsToFlows(ev, none, T, cfg.stepSize_m) } });
-    }
-  } else if (cfg.ev?.cheapestSource) {
-    // Legacy weekly schedule (no EV plans yet).
-    const ev = cfg.ev;
-    try {
-      const T = cfg.load_W.length;
-      // "Cheap" for stocking the battery up: the cheapest 15% of the plan's slots. The penalty is
-      // what storing a kWh at that price costs, so dearer power is not bought to reach the target,
-      // nor is the battery held back from the house at dearer hours.
-      const sortedPrices = [...cfg.importPrice].sort((x, y) => x - y);
-      const cheapPrice = sortedPrices[Math.floor((T - 1) * 0.15)];
-      const stockUpLimit = cheapPrice / (cfg.chargeEfficiency_percent / 100) + cfg.batteryCost_cent_per_kWh + 0.5;
-      const floor_Wh = Math.max(ev.essSocFloor_Wh ?? 0, (cfg.minSoc_percent / 100) * cfg.batteryCapacity_Wh);
-      // Battery targets only count for stretches whose EV flows are still open (from `fromSlot`
-      // on). Once the flows are fixed they, with the floors, already dictate what the battery
-      // must hold, and a target on top would keep the house off the battery at dear hours.
-      const withFlows = (fixedFlows: NonNullable<typeof ev.fixedFlows>, fromSlot: number): SolverConfig => ({
-        ...cfg,
-        ev: { ...ev, fixedFlows },
-        socTargets: (ev.essTargets ?? []).filter((tg) => tg.slot >= fromSlot - 1),
-        socTargetPenalty_cents_per_kWh: stockUpLimit,
-        socFloors: batteryFloorsForFlows(fixedFlows.b2ev, floor_Wh),
-      });
-      let fixedFlows = { g2ev: Array(T).fill(0), pv2ev: Array(T).fill(0), b2ev: Array(T).fill(0) };
-      for (const stretch of chargeStretches(ev, T)) {
-        const stepCfg = withFlows(fixedFlows, stretch[0]);
-        const stepRows = parseSolution(await solveLp(buildLP(stepCfg), { time_limit: SOLVE_TIME_LIMIT_S }), stepCfg, timing);
-        fixedFlows = planCheapestSourceEv(stepRows, cfg, ev, fixedFlows, stretch);
-      }
-      Object.assign(cfg, withFlows(fixedFlows, T + 1));
-    } catch (err) {
-      console.warn('[calculate] cheapest-source EV planning failed; falling back to deadline charging:', (err as Error).message);
     }
   }
 

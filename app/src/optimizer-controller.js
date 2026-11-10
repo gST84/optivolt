@@ -9,7 +9,7 @@ import { renderTable } from "./table.js";
 import { debounce } from "./utils.js";
 import { saveConfig } from "./config-store.js";
 import { fetchLastPlan, requestRemoteSolve } from "./api/api.js";
-import { updateEvPanel, collectEvSettings, initEvPanelToggles } from "./ev-tab.js";
+import { updateEvPanel, initEvPanelToggles } from "./ev-tab.js";
 import {
   snapshotUI,
   updatePlanMeta,
@@ -40,7 +40,7 @@ function setChartPlaceholders(text) {
 export function createOptimizerController({
   els,
   services = {},
-  getEvEntries = () => [],
+  getEvSettings = () => null,
   onPlanRows = () => {},
   onForecastsRefreshed = () => {},
   refreshEvEntries = async () => {},
@@ -311,7 +311,7 @@ export function createOptimizerController({
 
   function getEvSettings() {
     if (!els.evEnabled?.checked) return null;
-    return collectEvSettings(getEvEntries());
+    return getEvSettings();
   }
 
   return {

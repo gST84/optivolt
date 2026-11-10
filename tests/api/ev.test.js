@@ -188,128 +188,45 @@ describe('GET /ev/current', () => {
   });
 });
 
-describe('/ev/schedule-entries CRUD', () => {
-  const FAR_FUTURE = '2100-01-01T06:00:00Z';
-  const FAR_PAST = '2000-01-01T06:00:00Z';
-  const makeEntry = (over = {}) => ({
-    id: 'e1', type: 'departure', time: FAR_FUTURE,
-    createdAt: FAR_PAST, updatedAt: FAR_PAST, ...over,
-  });
+describe('/ev/plans CRUD', () => {
+  const plan = {
+    id: 'p1', type: 'cheapest', enabled: true, weekdays: [3, 5], start: '22:00', end: '07:00',
+    soc_percent: 80, afterFloor: 'stop', createdAt: 'a', updatedAt: 'a',
+  };
 
   beforeEach(() => {
     vi.resetAllMocks();
     saveData.mockResolvedValue();
   });
 
-  it('creates an entry and persists it', async () => {
-    loadData.mockResolvedValue({ evScheduleEntries: [] });
-    const res = await request(app)
-      .post('/ev/schedule-entries')
-      .send({ type: 'departure', time: FAR_FUTURE, soc_percent: 80 });
+  it('lists plans with their coming occurrences', async () => {
+    loadData.mockResolvedValue({ evPlans: [plan] });
+    const res = await request(app).get('/ev/plans');
+    expect(res.status).toBe(200);
+    expect(res.body.plans).toEqual([plan]);
+    expect(res.body.occurrences.length).toBeGreaterThan(0);
+    expect(res.body.occurrences[0]).toMatchObject({ planId: 'p1', type: 'cheapest' });
+  });
 
+  it('creates a plan and rejects an invalid one', async () => {
+    loadData.mockResolvedValue({ evPlans: [] });
+    const res = await request(app).post('/ev/plans').send({ type: 'trip', start: '2030-01-01T07:00:00Z', end: '2030-01-01T18:00:00Z', distance_km: 120 });
     expect(res.status).toBe(201);
-    expect(res.body.entry).toMatchObject({ type: 'departure', soc_percent: 80 });
-    expect(res.body.entries).toHaveLength(1);
-    expect(saveData).toHaveBeenCalledWith(expect.objectContaining({
-      evScheduleEntries: expect.arrayContaining([expect.objectContaining({ type: 'departure' })]),
-    }));
+    expect(res.body.plan).toMatchObject({ type: 'trip', distance_km: 120, weekdays: [] });
+    expect(saveData).toHaveBeenCalledWith(expect.objectContaining({ evPlans: [expect.objectContaining({ type: 'trip' })] }));
+
+    const bad = await request(app).post('/ev/plans').send({ type: 'target', start: '2030-01-01T07:00:00Z' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toContain('soc_percent');
   });
 
-  it('rejects an invalid entry (target without SoC)', async () => {
-    loadData.mockResolvedValue({ evScheduleEntries: [] });
-    const res = await request(app)
-      .post('/ev/schedule-entries')
-      .send({ type: 'target', time: FAR_FUTURE });
-    expect(res.status).toBe(400);
-  });
-
-  it('prunes past entries on GET', async () => {
-    loadData.mockResolvedValue({
-      evScheduleEntries: [makeEntry({ id: 'past', time: FAR_PAST }), makeEntry({ id: 'future' })],
-    });
-    const res = await request(app).get('/ev/schedule-entries');
-    expect(res.status).toBe(200);
-    expect(res.body.entries.map(e => e.id)).toEqual(['future']);
-    expect(saveData).toHaveBeenCalled();
-  });
-
-  it('updates an entry', async () => {
-    loadData.mockResolvedValue({ evScheduleEntries: [makeEntry({ soc_percent: 80 })] });
-    const res = await request(app)
-      .patch('/ev/schedule-entries/e1')
-      .send({ soc_percent: 55 });
-    expect(res.status).toBe(200);
-    expect(res.body.entry.soc_percent).toBe(55);
-  });
-
-  it('deletes an entry', async () => {
-    loadData.mockResolvedValue({ evScheduleEntries: [makeEntry()] });
-    const res = await request(app).delete('/ev/schedule-entries/e1');
-    expect(res.status).toBe(200);
-    expect(res.body.entries).toEqual([]);
-  });
-
-  it('returns 404 for an unknown id on update and delete', async () => {
-    loadData.mockResolvedValue({ evScheduleEntries: [makeEntry()] });
-    expect((await request(app).patch('/ev/schedule-entries/nope').send({ soc_percent: 10 })).status).toBe(404);
-    expect((await request(app).delete('/ev/schedule-entries/nope')).status).toBe(404);
-  });
-});
-
-describe('/ev/trip-presets CRUD', () => {
-  const knokke = { id: 'p1', name: 'Knokke', usage_percent: 35, updatedAt: '2000-01-01T00:00:00.000Z' };
-
-  beforeEach(() => {
-    vi.resetAllMocks();
-    saveData.mockResolvedValue();
-  });
-
-  it('lists the stored presets', async () => {
-    loadData.mockResolvedValue({ evTripPresets: [knokke] });
-    const res = await request(app).get('/ev/trip-presets');
-
-    expect(res.status).toBe(200);
-    expect(res.body.presets).toEqual([knokke]);
-  });
-
-  it('creates a preset and persists it', async () => {
-    loadData.mockResolvedValue({});
-    const res = await request(app).put('/ev/trip-presets').send({ name: '  Parents ', usage_percent: 22.4 });
-
-    expect(res.status).toBe(200);
-    // The name is trimmed and the percentage rounded to whole points.
-    expect(res.body.preset).toMatchObject({ name: 'Parents', usage_percent: 22 });
-    expect(res.body.presets).toHaveLength(1);
-    expect(saveData).toHaveBeenCalledWith(expect.objectContaining({
-      evTripPresets: [expect.objectContaining({ name: 'Parents' })],
-    }));
-  });
-
-  it('overwrites the percentage of an existing name instead of adding a second chip', async () => {
-    loadData.mockResolvedValue({ evTripPresets: [knokke] });
-    const res = await request(app).put('/ev/trip-presets').send({ name: 'knokke', usage_percent: 40 });
-
-    expect(res.status).toBe(200);
-    expect(res.body.presets).toHaveLength(1);
-    expect(res.body.presets[0]).toMatchObject({ id: 'p1', name: 'knokke', usage_percent: 40 });
-  });
-
-  it('rejects a nameless, non-string or out-of-range preset', async () => {
-    loadData.mockResolvedValue({});
-    expect((await request(app).put('/ev/trip-presets').send({ name: '  ', usage_percent: 20 })).status).toBe(400);
-    expect((await request(app).put('/ev/trip-presets').send({ name: 'Knokke', usage_percent: 140 })).status).toBe(400);
-    // A coerced name would have been stored as the string "[object Object]".
-    expect((await request(app).put('/ev/trip-presets').send({ name: {}, usage_percent: 20 })).status).toBe(400);
-    expect(saveData).not.toHaveBeenCalled();
-  });
-
-  it('deletes a preset, and 404s on an unknown id', async () => {
-    loadData.mockResolvedValue({ evTripPresets: [knokke] });
-    const res = await request(app).delete('/ev/trip-presets/p1');
-    expect(res.status).toBe(200);
-    expect(res.body.presets).toEqual([]);
-
-    expect((await request(app).delete('/ev/trip-presets/nope')).status).toBe(404);
+  it('updates and deletes, and 404s on an unknown id', async () => {
+    loadData.mockResolvedValue({ evPlans: [plan] });
+    const res = await request(app).patch('/ev/plans/p1').send({ enabled: false });
+    expect(res.body.plan).toMatchObject({ id: 'p1', enabled: false });
+    expect((await request(app).patch('/ev/plans/nope').send({ enabled: false })).status).toBe(404);
+    expect((await request(app).delete('/ev/plans/p1')).body.plans).toEqual([]);
+    expect((await request(app).delete('/ev/plans/nope')).status).toBe(404);
   });
 
   it('GET /ev/current reports the manual override current, even without a plan', async () => {

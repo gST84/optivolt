@@ -46,13 +46,10 @@ export function fetchHaEntityState(entityId) {
 // --- EV ---
 export const fetchEvSchedule = () => getJson('/ev/schedule');
 export const fetchEvCurrent = () => getJson('/ev/current');
-export const fetchEvScheduleEntries = () => getJson('/ev/schedule-entries');
-export const createEvScheduleEntry = (entry) => postJson('/ev/schedule-entries', entry);
-export const updateEvScheduleEntry = (id, entry) => postJson(`/ev/schedule-entries/${encodeURIComponent(id)}`, entry, { method: 'PATCH' });
-export const deleteEvScheduleEntry = (id) => postJson(`/ev/schedule-entries/${encodeURIComponent(id)}`, {}, { method: 'DELETE' });
-export const fetchEvTripPresets = () => getJson('/ev/trip-presets');
-export const saveEvTripPreset = (preset) => postJson('/ev/trip-presets', preset, { method: 'PUT' });
-export const deleteEvTripPreset = (id) => postJson(`/ev/trip-presets/${encodeURIComponent(id)}`, {}, { method: 'DELETE' });
+export const fetchEvPlans = () => getJson('/ev/plans');
+export const createEvPlan = (plan) => postJson('/ev/plans', plan);
+export const updateEvPlan = (id, plan) => postJson(`/ev/plans/${encodeURIComponent(id)}`, plan, { method: 'PATCH' });
+export const deleteEvPlan = (id) => postJson(`/ev/plans/${encodeURIComponent(id)}`, {}, { method: 'DELETE' });
 
 // --- Predictions ---
 export const fetchPredictionConfig = () => getJson('/predictions/config');

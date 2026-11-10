@@ -448,20 +448,33 @@ Wanneer:
 
 ## 11. Wat verdwijnt / blijft
 
-| Onderdeel | Lot |
+| Onderdeel | Lot (fase 7) |
 |---|---|
-| `lib/ev-cheapest-source.ts` (greedy na de solve) | **verdwijnt** → vervangen door de regels van § 6 |
-| EV-binaries in `build-lp.ts` (`ev_on`, `ev_grid_ok`, `ev_target_shortfall`) | **verdwijnen**; EV-stromen worden vaste invoer |
-| `evWeeklyCheapestSource`, `evOverrideEnabled/Current_A` | **migreren** naar plantype *goedkoopste* resp. *direct laden* |
-| `usage_percent` op trips | **migreert** naar km |
-| `ev-trip-usage.ts` (verbruiksvoorspelling) | blijft |
+| `lib/ev-cheapest-source.ts` (greedy na de solve) | **verwijderd** → regels van § 6 (`lib/ev-rules.ts`) |
+| Oud EV-schema en weekplanner in het scherm (`ev-schedule.js`, `ev-weekly.js`) | **verwijderd** → plannenblok (`app/src/ev-plans.js`) |
+| `/ev/schedule-entries`, `/ev/trip-presets` en hun opslag | **verwijderd** → `/ev/plans` |
+| Legacy-pad in planner en config-builder | **verwijderd**: de plannen sturen altijd (geen plannen = lege lijst) |
+| `evScheduleEntries`, `evWeeklySchedule`, `evWeeklyCheapestSource` | blijven enkel om bij de eerste keer om te zetten naar plannen |
+| EV-binaries / zachte doelen / forced slots in `build-lp.ts` | blijven in de LP (ook voor de upstream-PR's), maar de fork stuurt de EV met vaste stromen |
+| `ev-trip-usage.ts` (verbruiksvoorspelling) | blijft, recente weken wegen zwaarder (halfwaardetijd 14 dagen) |
 | `price-forecast-service.ts`, `extendedHorizonDays` | blijft |
 | `battery-energy-price.ts` | blijft als terugval (§ 5) |
-| `socTargets` / ESS-doel per plan | blijft, wordt zacht tier 2 |
+| `socTargets` / ESS-doel per plan | blijft, voor *goedkoopste*-vensters |
 | Rebalance-planning | blijft ongewijzigd |
 | DESS-mapping | blijft; EV-stromen komen uit de regels |
 
 Upstream-PR's (#208–#213) blijven los hiervan; dit ontwerp is voor de fork.
+
+*Gebouwd (fase 5–7):* plannenblok op de EV-tab met lijst (aan/uit per plan) en editor: type,
+weekdagen (geen = eenmalig, dan datum + tijd), tijden, SoC, afstand (trip), ESS-doel en "bij de
+ondergrens" (goedkoopste). Markeringen op de grafieken komen uit de momenten die `GET /ev/plans`
+meegeeft. Named trip-presets (in %) zijn vervallen; een trip heeft nu een afstand.
+
+*Gebouwd (fase 6):* de dagelijkse verbruiksvoorspelling weegt recente dagen zwaarder
+(halfwaardetijd 14 dagen). Met een kilometerstand-sensor leert Optivolt het verbruik per rit
+(`SoC-daling × capaciteit ÷ km`, min. 3 ritten en 30 km) en gebruikt dat voor trips in plaats van
+de instelling; de Predictions-tab toont het. Het ESS voorladen voor een venster is het ESS-doel
+van het plan met de "goedkope 15 %"-boete (§ 4.5).
 
 ## 12. Testscenario's
 

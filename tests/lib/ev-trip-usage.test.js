@@ -84,3 +84,33 @@ describe('buildEvSocForecast', () => {
     expect(out).toEqual([40, 30, 30, 35, null]);
   });
 });
+
+describe('recency weighting and learned consumption', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const base = new Date(2026, 0, 5).getTime(); // a Monday, local midnight
+
+  it('weighs recent days more with a half-life', () => {
+    // Two weeks: 10 % per day in the first, 30 % in the second (trips at 08:00).
+    const trips = Array.from({ length: 14 }, (_, i) => ({
+      departMs: base + i * DAY + 8 * 3600_000, arriveMs: base + i * DAY + 18 * 3600_000, usage_percent: i < 7 ? 10 : 30,
+    }));
+    const from = base - 1;
+    const to = base + 14 * DAY + 1;
+    expect(buildEvUsagePrediction(trips, from, to).overall).toBeCloseTo(20, 6);
+    expect(buildEvUsagePrediction(trips, from, to, 7).overall).toBeGreaterThan(22);
+  });
+
+  it('reads the distance from the odometer and learns kWh per 100 km', async () => {
+    const { learnConsumption } = await import('../../lib/ev-trip-usage.ts');
+    const t = (h) => base + h * 3600_000;
+    const soc = [{ t: t(7), state: '80' }, { t: t(19), state: '62' }];
+    const plug = [{ t: t(0), state: 'on' }, { t: t(8), state: 'off' }, { t: t(18), state: 'on' }];
+    const odo = [{ t: t(7), state: '1000' }, { t: t(18.5), state: '1060' }];
+    const [trip] = extractEvTrips(soc, plug, odo);
+    expect(trip.distance_km).toBe(60);
+    const trips = [trip, { ...trip, departMs: trip.departMs + DAY, arriveMs: trip.arriveMs + DAY }, { ...trip, departMs: trip.departMs + 2 * DAY, arriveMs: trip.arriveMs + 2 * DAY }];
+    // 18 % of 60 kWh = 10.8 kWh over 60 km = 18 kWh/100 km.
+    expect(learnConsumption(trips, 60, trip.arriveMs + 3 * DAY)).toBeCloseTo(18, 6);
+    expect(learnConsumption(trips.slice(0, 2), 60, trip.arriveMs)).toBeNull();
+  });
+});

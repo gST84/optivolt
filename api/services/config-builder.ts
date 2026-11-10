@@ -164,13 +164,13 @@ export function buildSolverConfigFromSettings(
     unpluggedAtMs: data.evLastState && !data.evLastState.pluggedIn ? new Date(data.evLastState.observedAt).getTime() : null,
   };
   // EV plans (docs/design-ev-charging.md § 4): the plans decide when the car is home; the EV rules
-  // in the planner then fix the charging. Without plans (not yet migrated) the legacy schedule
-  // entries and weekly schedule still drive an optimised EV.
+  // in the planner then fix the charging. The legacy schedule is migrated into plans on load
+  // (ev-plan-store.ts); no plans at all is an empty list.
   let evRuleRequests: EvRuleRequestFromPlan[] | undefined;
   let ev: ReturnType<typeof buildEvConfig>;
-  if (data.evPlans !== undefined) {
+  {
     const horizonEndMs = nowMs + T * settings.stepSize_m * 60_000;
-    const occurrences = expandEvPlans(data.evPlans, nowMs, horizonEndMs);
+    const occurrences = expandEvPlans(data.evPlans ?? [], nowMs, horizonEndMs);
     const entries = occurrencesToEntries(occurrences, settings, nowMs);
     // Legacy knobs off: the weekly schedule became plans, and the rules replace the LP's floor.
     // "Charge now" is a rule request too (planner), not the LP's forced slots.
@@ -187,8 +187,6 @@ export function buildSolverConfigFromSettings(
         evTripSocBuffer_percent: settings.evTripSocBuffer_percent,
       });
     }
-  } else {
-    ev = buildEvConfig(settings, data.evScheduleEntries ?? [], evState, nowMs, T, evOpts);
   }
   if (ev) base.ev = ev;
 

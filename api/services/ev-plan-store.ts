@@ -27,8 +27,7 @@ async function loadPlansData(nowMs = Date.now()): Promise<{ data: Data; plans: E
       evConsumption_kWh_per_100km: settings.evConsumption_kWh_per_100km,
       nowMs,
     });
-    // Nothing to migrate: leave data.json alone (the planner keeps its legacy path until the
-    // first plan is saved).
+    // Nothing to migrate: leave data.json alone (no plans reads as an empty list).
     if (plans.length === 0) return { data, plans };
     changed = true;
   }

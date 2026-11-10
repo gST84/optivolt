@@ -16,6 +16,8 @@ export interface EvTrip {
   departMs: number;
   arriveMs: number;
   usage_percent: number;
+  /** Driven distance, when an odometer was read at both ends. */
+  distance_km?: number;
 }
 
 export interface EvUsagePrediction {
@@ -59,7 +61,17 @@ export function isPluggedState(state: string): boolean | null {
  * on the road. Unknown/unavailable readings are skipped; a trip without both readings, or one
  * that gained charge, is dropped.
  */
-export function extractEvTrips(soc: HaStatePoint[], plug: HaStatePoint[]): EvTrip[] {
+export function extractEvTrips(soc: HaStatePoint[], plug: HaStatePoint[], odometer: HaStatePoint[] = []): EvTrip[] {
+  const odoPoints = odometer
+    .map((p) => ({ t: p.t, v: Number.parseFloat(p.state) }))
+    .filter((p) => Number.isFinite(p.v))
+    .sort((a, b) => a.t - b.t);
+  const odoAtOrBefore = (t: number) => {
+    let found: number | null = null;
+    for (const p of odoPoints) { if (p.t > t) break; found = p.v; }
+    return found;
+  };
+  const odoAfter = (t: number, until: number) => odoPoints.find((p) => p.t >= t && p.t <= until)?.v ?? odoAtOrBefore(t);
   const socPoints = soc
     .map((p) => ({ t: p.t, v: Number.parseFloat(p.state) }))
     .filter((p) => Number.isFinite(p.v))
@@ -86,12 +98,47 @@ export function extractEvTrips(soc: HaStatePoint[], plug: HaStatePoint[]): EvTri
     const atDepart = lastAtOrBefore(departMs);
     const atArrive = firstAfter(arriveMs, arriveMs + MAX_ARRIVAL_READING_LAG_MS) ?? lastAtOrBefore(arriveMs);
     if (atDepart == null || atArrive == null || atArrive > atDepart) continue;
-    trips.push({ departMs, arriveMs, usage_percent: atDepart - atArrive });
+    const trip: EvTrip = { departMs, arriveMs, usage_percent: atDepart - atArrive };
+    const odoDepart = odoAtOrBefore(departMs);
+    const odoArrive = odoAfter(arriveMs, arriveMs + MAX_ARRIVAL_READING_LAG_MS);
+    if (odoDepart != null && odoArrive != null && odoArrive > odoDepart) trip.distance_km = odoArrive - odoDepart;
+    trips.push(trip);
   }
   return trips;
 }
 
-const mean = (xs: number[]) => xs.reduce((sum, x) => sum + x, 0) / xs.length;
+/** Weight of a day `ageMs` old: halves every `halfLifeDays`; 1 for all without a half-life. */
+const recencyWeight = (ageMs: number, halfLifeDays?: number) =>
+  halfLifeDays && halfLifeDays > 0 ? 0.5 ** (Math.max(0, ageMs) / (halfLifeDays * DAY_MS)) : 1;
+
+/** Weighted mean of [value, weight] pairs. */
+const weightedMean = (xs: [number, number][]) => {
+  const w = xs.reduce((sum, [, wt]) => sum + wt, 0);
+  return w > 0 ? xs.reduce((sum, [v, wt]) => sum + v * wt, 0) / w : 0;
+};
+
+/** Trips need at least this many kilometres in total before a consumption is learned. */
+const MIN_LEARN_KM = 30;
+const MIN_LEARN_TRIPS = 3;
+
+/**
+ * Consumption learned from trips with a known distance (odometer), in kWh per 100 km: the
+ * energy the trips used (share × battery capacity) over the distance, recent trips weighing more.
+ * Null with fewer than three such trips or under 30 km in total.
+ */
+export function learnConsumption(trips: EvTrip[], capacity_kWh: number, nowMs: number, halfLifeDays?: number): number | null {
+  const known = trips.filter((t) => t.distance_km != null && t.distance_km >= 1 && t.usage_percent > 0);
+  const totalKm = known.reduce((sum, t) => sum + (t.distance_km ?? 0), 0);
+  if (known.length < MIN_LEARN_TRIPS || totalKm < MIN_LEARN_KM || !(capacity_kWh > 0)) return null;
+  let energy = 0;
+  let km = 0;
+  for (const t of known) {
+    const w = recencyWeight(nowMs - t.arriveMs, halfLifeDays);
+    energy += w * (t.usage_percent / 100) * capacity_kWh;
+    km += w * (t.distance_km as number);
+  }
+  return km > 0 ? (energy / km) * 100 : null;
+}
 
 const localDayStart = (ms: number) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
 const nextLocalDay = (dayStartMs: number) => { const d = new Date(dayStartMs); d.setDate(d.getDate() + 1); return d.getTime(); };
@@ -102,19 +149,24 @@ const nextLocalDay = (dayStartMs: number) => { const d = new Date(dayStartMs); d
  * without a trip counts as 0. A weekday needs at least two such days and the overall average
  * three, so a single odd day does not become the rule.
  */
-export function buildEvUsagePrediction(trips: EvTrip[], fromMs: number, toMs: number): EvUsagePrediction {
+export function buildEvUsagePrediction(trips: EvTrip[], fromMs: number, toMs: number, halfLifeDays?: number): EvUsagePrediction {
   const perDay = new Map<number, number>();
   for (let d = nextLocalDay(localDayStart(fromMs)); nextLocalDay(d) <= toMs; d = nextLocalDay(d)) perDay.set(d, 0);
   for (const trip of trips) {
     const d = localDayStart(trip.departMs);
     if (perDay.has(d)) perDay.set(d, (perDay.get(d) ?? 0) + trip.usage_percent);
   }
-  const byDay: number[][] = Array.from({ length: 7 }, () => []);
-  for (const [d, usage] of perDay) byDay[new Date(d).getDay()].push(usage);
-  const all = [...perDay.values()];
+  // Recent days weigh more with a half-life, so the prediction follows the seasons (winter use).
+  const byDay: [number, number][][] = Array.from({ length: 7 }, () => []);
+  const all: [number, number][] = [];
+  for (const [d, usage] of perDay) {
+    const entry: [number, number] = [usage, recencyWeight(toMs - d, halfLifeDays)];
+    byDay[new Date(d).getDay()].push(entry);
+    all.push(entry);
+  }
   return {
-    byWeekday: byDay.map((xs) => (xs.length >= MIN_WEEKDAY_DAYS ? mean(xs) : null)),
-    overall: all.length >= MIN_DAYS ? mean(all) : null,
+    byWeekday: byDay.map((xs) => (xs.length >= MIN_WEEKDAY_DAYS ? weightedMean(xs) : null)),
+    overall: all.length >= MIN_DAYS ? weightedMean(all) : null,
     trips: trips.filter((t) => perDay.has(localDayStart(t.departMs))).length,
     days: all.length,
   };

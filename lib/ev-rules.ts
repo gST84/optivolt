@@ -422,3 +422,14 @@ export function fitDropsToFlows(ev: EvConfig, flows: EvFlows, T: number, stepSiz
     return { ...w, drop_Wh: Math.max(0, Math.min(w.drop_Wh, before)) };
   });
 }
+
+/** Home battery SoC floors (end of slot t and of the slot before) for every slot the EV draws on it. */
+export function batteryFloorsForFlows(b2ev: number[], floor_Wh: number): { slot: number; soc_Wh: number }[] {
+  const slots = new Set<number>();
+  b2ev.forEach((w, t) => {
+    if (w <= 0) return;
+    slots.add(t);
+    if (t > 0) slots.add(t - 1);
+  });
+  return [...slots].sort((a, b) => a - b).map((slot) => ({ slot, soc_Wh: floor_Wh }));
+}

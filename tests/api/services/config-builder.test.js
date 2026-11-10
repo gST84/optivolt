@@ -120,7 +120,7 @@ describe('buildSolverConfigFromSettings — timeline normalization', () => {
   });
 });
 
-// EV config (static fields only); schedule comes from data.evScheduleEntries.
+// EV config (static fields only); the schedule comes from data.evPlans.
 // Detailed EvConfig coverage lives in ev-config-builder.test.js; these are wiring checks.
 const evSettings = {
   ...mockSettings,
@@ -132,10 +132,10 @@ const evSettings = {
 };
 
 const evEntry = (over = {}) => ({
-  id: 'e1', type: 'departure', time: '2024-01-01T14:00:00Z', // 2 h after NOW → 8 slots
+  id: 'e1', type: 'departure', enabled: true, weekdays: [], start: '2024-01-01T14:00:00Z', // 2 h after NOW → 8 slots
   createdAt: NOW_STRING, updatedAt: NOW_STRING, ...over,
 });
-const dataWithEntries = (entries) => ({ ...makeData(), evScheduleEntries: entries });
+const dataWithEntries = (plans) => ({ ...makeData(), evPlans: plans });
 
 describe('buildSolverConfigFromSettings — EV config (wiring)', () => {
   it('does not add ev when evEnabled is false', () => {
@@ -150,13 +150,16 @@ describe('buildSolverConfigFromSettings — EV config (wiring)', () => {
     expect(cfg.ev).toBeUndefined();
   });
 
-  it('wires buildEvConfig in from data.evScheduleEntries when plugged in', () => {
-    const { cfg } = buildSolverConfigFromSettings(
+  it('wires the EV plans in when plugged in: availability, targets and rule requests', () => {
+    const { cfg, evRuleRequests } = buildSolverConfigFromSettings(
       evSettings, dataWithEntries([evEntry({ soc_percent: 80 })]), NOW_MS, { pluggedIn: true, soc_percent: 50 },
     );
     expect(cfg.ev).toBeDefined();
     expect(cfg.ev.availabilityWindows).toEqual([{ startSlot: 0, endSlot: 8, resetSoc_Wh: 30000 }]);
     expect(cfg.ev.targets).toEqual([{ slot: 7, soc_Wh: 37360 }]);
+    expect(evRuleRequests).toEqual([
+      expect.objectContaining({ kind: 'deadline', planId: 'e1', fromSlot: 0, toSlot: 8, soc_percent: 80 }),
+    ]);
   });
 
   it('passes evSocValue_cents_per_kWh through to the solver config', () => {
