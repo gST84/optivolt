@@ -1,36 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { collectEvSettings, initEvPanelToggles, updateEvPanel } from '../../app/src/ev-tab.js';
+import { initEvPanelToggles, updateEvPanel } from '../../app/src/ev-tab.js';
 import { resetPlanStore, setPlan } from '../../app/src/plan-store.js';
-
-describe('collectEvSettings — trips', () => {
-  const trip = {
-    id: 't1',
-    type: 'trip',
-    time: '2026-05-01T08:00:00.000Z',
-    endTime: '2026-05-01T17:00:00.000Z',
-    usage_percent: 25,
-  };
-
-  it('contributes a departure, an arrival, and an away span', () => {
-    const result = collectEvSettings([trip]);
-    expect(result.departures).toEqual([trip.time]);
-    expect(result.arrivals).toEqual([trip.endTime]);
-    expect(result.trips).toEqual([{ from: trip.time, to: trip.endTime }]);
-  });
-
-  // SoC deadlines are resolved by the solver and arrive on the plan rows, so the
-  // client no longer re-derives them (trip usage + buffer, departure SoC, …).
-  it('derives no SoC targets', () => {
-    const result = collectEvSettings([
-      trip,
-      { id: 'd1', type: 'departure', time: '2026-05-02T08:00:00.000Z', soc_percent: 80 },
-      { id: 'g1', type: 'target', time: '2026-05-02T09:00:00.000Z', soc_percent: 90 },
-    ]);
-    expect(result.targets).toBeUndefined();
-    expect(result.departures).toEqual([trip.time, '2026-05-02T08:00:00.000Z']);
-  });
-});
 
 describe('updateEvPanel', () => {
   const rows = [

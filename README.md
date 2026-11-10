@@ -305,11 +305,13 @@ The **API** exposes:
 - `POST /predictions/pv/forecast` — Runs the PV forecast when PV configuration is complete.
 - `POST /predictions/forecast` — Runs load and PV forecasts together, persists raw forecasts according to data-source settings, and returns adjusted forecasts.
 - `GET /predictions/forecast/now` — Same combined forecast path with recent comparison disabled.
-- `GET /ev/current` — Current time slot's EV charging decision (`ev_charge_mode`, `ev_charge_A`, source flows, EV SoC, `ess_floor_active`, `override_active`). Outside the current plan horizon it returns a fail-safe `off` decision with `plan_valid: false`.
+- `GET /ev/current` — The charger command for now: the plan's EV decision through the live home battery floor and the charge guard (capacity tariff bucket, PV surplus, phase choice). Reports `current_A`, `phases`, `reason`, `source`, `peak`, `paused_until`, `poll_interval_s`, `fallback_active` and `warnings`, next to the older fields (`ev_charge_mode`, `ev_charge_A`, source flows, EV SoC, `ess_floor_active`, `override_active`). Without a usable plan it answers with the fallback mode. `?peek=1` leaves the guard untouched. See [docs/ev-charger-automation.md](docs/ev-charger-automation.md).
 - `GET /ev/schedule` — Full per-slot EV charging schedule from the last computed plan.
-- `GET /ev/schedule-entries` — Lists active EV schedule entries (arrival, departure, target) and prunes expired ones.
-- `POST /ev/schedule-entries` — Creates an EV schedule entry.
-- `PATCH /ev/schedule-entries/:id` — Updates an EV schedule entry.
-- `DELETE /ev/schedule-entries/:id` — Deletes an EV schedule entry.
+- `GET /ev/plans` — Lists the EV plans (cheapest window, target, departure, arrival, trip; one-off or weekly) and their occurrences in the coming days. The first read migrates the old schedule entries and weekly plans.
+- `POST /ev/plans` — Creates an EV plan.
+- `PATCH /ev/plans/:id` — Updates an EV plan.
+- `DELETE /ev/plans/:id` — Deletes an EV plan.
+- `POST /ev/pause` — Pauses EV charging for `{ minutes }` or `{ until }`; `POST /ev/resume` ends the pause.
+- `GET /ha/entities?domains=sensor,binary_sensor` — Lists Home Assistant entities for the sensor pickers.
 - `GET /ha/entity/:entityId` — Fetch live entity state from Home Assistant (used to validate EV sensor configuration).
 - `GET /health` — Liveness probe used by the container health check.

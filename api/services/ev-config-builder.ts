@@ -2,6 +2,7 @@ import { predictUsageBetween, type EvUsagePrediction } from '../../lib/ev-trip-u
 import type { EvConfig, EvSocTarget } from '../../lib/types.ts';
 import type { EvScheduleEntry, Settings } from '../types.ts';
 import { expandWeeklySchedule, weeklyScheduleEntries } from './ev-weekly-schedule.ts';
+import { evPowerRange, powerForCurrent } from './ev-charger.ts';
 
 export interface BuildEvConfigOptions {
   /** Current home battery SoC (%), used to estimate when the ESS floor stops blocking grid charging. */
@@ -184,8 +185,7 @@ export function buildEvConfig(
     return undefined;
   }
 
-  const minPow_W = settings.evMinChargeCurrent_A * 230;
-  const maxPow_W = settings.evMaxChargeCurrent_A * 230;
+  const { min_W: minPow_W, max_W: maxPow_W } = evPowerRange(settings);
   const capacityWh = settings.evBatteryCapacity_kWh * 1000;
   const stepHours = settings.stepSize_m / 60;
   const efficiency = settings.evChargeEfficiency_percent / 100;
@@ -328,7 +328,7 @@ export function buildEvConfig(
   // for as many slots as fit under the charge ceiling, also outside the weekly windows.
   let forced: { forcedCharge_W: number; forcedSlots: number } | null = null;
   if (settings.evOverrideEnabled && pluggedIn && windows[0]?.startSlot === 0) {
-    const forcedCharge_W = Math.min(maxPow_W, Math.max(Math.min(minPow_W, maxPow_W), settings.evOverrideCurrent_A * 230));
+    const forcedCharge_W = Math.min(maxPow_W, Math.max(minPow_W, powerForCurrent(settings, settings.evOverrideCurrent_A)));
     const ceilingWh = capacityWh * ((settings.evMaxSoc_percent ?? 100) / 100);
     const perSlot_Wh = forcedCharge_W * stepHours * efficiency;
     const forcedSlots = perSlot_Wh > 0
@@ -341,7 +341,7 @@ export function buildEvConfig(
   }
 
   return {
-    evMinChargePower_W: Math.min(minPow_W, maxPow_W),
+    evMinChargePower_W: minPow_W,
     evMaxChargePower_W: maxPow_W,
     evBatteryCapacity_Wh: capacityWh,
     evInitialSoc_percent: initialSoc_percent,

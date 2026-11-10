@@ -60,7 +60,13 @@ function updateCard(usage) {
   if (!panel || !trips || !days) return;
   panel.classList.toggle("hidden", !prediction);
   if (!prediction) return;
-  trips.textContent = `${prediction.trips} ${prediction.trips === 1 ? "trip" : "trips"} over ${prediction.days} days`;
+  trips.textContent = `${prediction.trips} ${prediction.trips === 1 ? "trip" : "trips"} over ${prediction.days} days (recent weeks count more)`;
+  const consumption = document.getElementById("ev-usage-consumption");
+  if (consumption) {
+    consumption.textContent = usage.consumption_kWh_per_100km != null
+      ? `${usage.consumption_kWh_per_100km} kWh/100 km (learned)`
+      : "From the setting (no odometer data)";
+  }
   days.replaceChildren(
     ...DAYS.map((d) => cell(d.label, fmt(prediction.byWeekday?.[d.value]), prediction.byWeekday?.[d.value] == null
       ? "Fewer than two of these days in the history: the overall average is used" : "Average use on this weekday")),

@@ -6,8 +6,8 @@ import {
   loadHaEntityOptions,
   wireEvSensorInputs,
 } from "./src/ev-settings.js";
-import { createEvScheduleController } from "./src/ev-schedule.js";
-import { wireWeeklySchedule } from "./src/ev-weekly.js";
+import { createEvPlansController } from "./src/ev-plans.js";
+import { initEvLiveStatus } from "./src/ev-live.js";
 import { mountChartPlaceholders } from "./src/chart-empty.js";
 import { initOptimizerQuickSettings } from "./src/optimizer-quick-settings.js";
 import { createOptimizerController } from "./src/optimizer-controller.js";
@@ -33,20 +33,18 @@ function revealCards(panel) {
 // ---------- DOM ----------
 mountChartPlaceholders();
 const els = getElements();
-let evSchedule = null;
+let evPlans = null;
 const optimizer = createOptimizerController({
   els,
-  getEvEntries: () => evSchedule?.getEntries() ?? [],
-  onPlanRows: (rows) => evSchedule?.refreshHorizonQuickSet(rows),
+  getEvAnnotations: () => evPlans?.getEvSettings() ?? null,
   // The server regenerates the stored load/PV series when the horizon changes;
   // the Predictions tab caches them, so it has to re-read.
   onForecastsRefreshed: () => reloadStoredForecasts(),
-  // A solve prunes EV schedule entries whose event has happened, so the page
-  // re-reads them before painting the plan they belong to.
-  refreshEvEntries: () => evSchedule?.loadEntries(),
+  // A solve prunes EV plans that have passed (and migrates the old schedule on the first run),
+  // so the page re-reads them before painting the plan they belong to.
+  refreshEvEntries: () => evPlans?.load(),
 });
-evSchedule = createEvScheduleController({
-  els,
+evPlans = createEvPlansController({
   onChange: () => optimizer.debounceRun(),
 });
 let optimizerQuickSettings = null;
@@ -152,9 +150,7 @@ async function boot() {
     persistConfigDebounced: optimizer.persistConfigDebounced,
     debounceRun: optimizer.debounceRun,
   });
-  wireWeeklySchedule(els);
-  evSchedule.wireEditor();
-  await evSchedule.loadEntries();
+  await evPlans.load();
 
   if (els.status) {
     els.status.textContent =
@@ -165,6 +161,7 @@ async function boot() {
   // Not awaited — HA may be slow or unconfigured; the initial solve should not wait for it.
   void refreshEvSensorStates(els);
   void loadHaEntityOptions(els);
+  initEvLiveStatus();
 
   // Reveal the cards *before* the first solve. Cards are opacity:0 until
   // revealed, so revealing afterwards left the whole panel blank for the

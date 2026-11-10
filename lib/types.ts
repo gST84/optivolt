@@ -88,7 +88,7 @@ export interface EvConfig {
    * Cheapest-source charging (weekly plans): targets are not deadlines but a ceiling. The EV
    * charging is not optimised but derived from a plan solved without the EV, slot by slot: from
    * the grid when it is cheaper than `essFloorGridPriceLimit_cents_per_kWh`, otherwise from the
-   * home battery down to the floor, the house always served first. See lib/ev-cheapest-source.ts.
+   * home battery down to the floor, the house always served first. (Legacy; the EV rules in lib/ev-rules.ts replaced it.)
    */
   cheapestSource?: boolean;
   /**

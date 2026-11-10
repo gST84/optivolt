@@ -1,6 +1,5 @@
 import { SOLUTION_COLORS } from "./charts.js";
 import { parseQuickSettingSelection, writeQuickSettingSelection } from "./optimizer-quick-settings.js";
-import { readWeeklySchedule, renderWeeklySchedule } from "./ev-weekly.js";
 
 // ---------- UI <-> settings snapshot ----------
 export function snapshotUI(els) {
@@ -55,11 +54,9 @@ export function snapshotUI(els) {
     evSocValue_cents_per_kWh: num(els.evSocValuation?.value),
     evTripSocBuffer_percent: num(els.evTripSocBuffer?.value),
     evEssSocFloor_percent: num(els.evEssSocFloor?.value),
-    evWeeklyCheapestSource: !!els.evWeeklyCheapestSource?.checked,
     evPredictTripUsage: !!els.evPredictTripUsage?.checked,
     evOverrideEnabled: !!els.evOverrideEnabled?.checked,
     evOverrideCurrent_A: num(els.evOverrideCurrent?.value) ?? 16,
-    evWeeklySchedule: readWeeklySchedule(els.evWeeklySchedule),
     evSocSensor: els.evSocSensor?.value ?? '',
     evPlugSensor: els.evPlugSensor?.value ?? '',
     evPowerSensor: els.evPowerSensor?.value ?? '',
@@ -160,9 +157,6 @@ export function hydrateUI(els, obj = {}) {
   setIfDef(els.evSocValuation, obj.evSocValue_cents_per_kWh);
   setIfDef(els.evTripSocBuffer, obj.evTripSocBuffer_percent);
   setIfDef(els.evEssSocFloor, obj.evEssSocFloor_percent);
-  if (els.evWeeklyCheapestSource && obj.evWeeklyCheapestSource != null) {
-    els.evWeeklyCheapestSource.checked = !!obj.evWeeklyCheapestSource;
-  }
   if (els.evPredictTripUsage && obj.evPredictTripUsage != null) {
     els.evPredictTripUsage.checked = !!obj.evPredictTripUsage;
   }
@@ -174,7 +168,6 @@ export function hydrateUI(els, obj = {}) {
     if (obj.evMinChargeCurrent_A != null) els.evOverrideCurrent.min = String(obj.evMinChargeCurrent_A);
     if (obj.evMaxChargeCurrent_A != null) els.evOverrideCurrent.max = String(obj.evMaxChargeCurrent_A);
   }
-  if (Array.isArray(obj.evWeeklySchedule)) renderWeeklySchedule(els, obj.evWeeklySchedule);
   setIfDef(els.evSocSensor, obj.evSocSensor);
   setIfDef(els.evPlugSensor, obj.evPlugSensor);
   setIfDef(els.evPowerSensor, obj.evPowerSensor);

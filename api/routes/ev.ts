@@ -3,28 +3,15 @@ import type { Request, Response, NextFunction } from 'express';
 import { assertCondition, toHttpError } from '../http-errors.ts';
 import { getLastPlan } from '../services/planner-service.ts';
 import { loadSettings } from '../services/settings-store.ts';
-import { loadData } from '../services/data-store.ts';
-import { applyEssFloorGuard } from '../services/ev-ess-floor.ts';
-import type { EvScheduleEntryInput } from '../services/ev-schedule-entries.ts';
-import type { EvTripPresetInput } from '../services/ev-trip-preset-store.ts';
-import {
-  deleteEvTripPreset,
-  loadEvTripPresets,
-  saveEvTripPreset,
-} from '../services/ev-trip-preset-store.ts';
-import {
-  createStoredEvScheduleEntry,
-  deleteStoredEvScheduleEntry,
-  loadActiveEvScheduleEntriesAndPrune,
-  updateStoredEvScheduleEntry,
-} from '../services/ev-schedule-store.ts';
+import { loadData, saveData } from '../services/data-store.ts';
+import { decideEvCurrent, type PlanSnapshot } from '../services/ev-guard-service.ts';
 import {
   createStoredEvPlan,
   deleteStoredEvPlan,
   loadEvPlans,
   updateStoredEvPlan,
 } from '../services/ev-plan-store.ts';
-import type { EvPlanInput } from '../services/ev-plans.ts';
+import { expandEvPlans, type EvPlanInput } from '../services/ev-plans.ts';
 
 const router = express.Router();
 
@@ -60,155 +47,75 @@ router.get('/schedule', (_req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// GET /ev/current — current time slot's EV charging decision
-router.get('/current', async (_req: Request, res: Response, next: NextFunction) => {
+// GET /ev/current — the charger command for now (docs/design-ev-charging.md § 9.1): the plan's
+// decision for this slot through the live floor guard and the charge guard (peak bucket, PV
+// surplus, phases), the pause API and the fallback. `?peek=1` (the UI's status view) answers
+// without advancing the guard or counting as a charger poll.
+router.get('/current', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Manual override: charge at the chosen current, whatever the plan says (or without one).
-    // Settings that cannot be read fall through to the plan.
-    let override: number | null = null;
-    try {
-      const s = await loadSettings();
-      if (s?.evOverrideEnabled) override = s.evOverrideCurrent_A;
-    } catch { /* fall through to the plan */ }
-    if (override != null) {
-      const planRow = getLastPlan()?.rows.findLast((r) => r.timestampMs <= Date.now());
-      res.json({
-        timestampMs: planRow?.timestampMs ?? null,
-        ev_charge_W: override * 230,
-        ev_charge_A: override,
-        ev_charge_mode: 'fixed',
-        g2ev_W: planRow?.g2ev ?? 0,
-        pv2ev_W: planRow?.pv2ev ?? 0,
-        b2ev_W: planRow?.b2ev ?? 0,
-        ev_soc_percent: planRow?.ev_soc_percent ?? null,
-        is_charging: true,
-        plan_valid: planRow != null,
-        override_active: true,
-        ess_floor_active: false,
-      });
-      return;
-    }
-
-    const plan = getLastPlan();
-    assertCondition(!!plan, 404, 'No plan computed yet');
-
-    const nowMs = Date.now();
-    const rows = plan.rows;
-    assertCondition(rows.length > 0, 404, 'Computed plan has no slots');
-
-    const firstSlotMs = rows[0].timestampMs;
-    const planEndMs = rows[rows.length - 1].timestampMs + plan.timing.stepMin * 60_000;
-    if (nowMs < firstSlotMs || nowMs >= planEndMs) {
-      const reason = nowMs < firstSlotMs ? 'before_plan' : 'expired_plan';
-      res.json({
-        timestampMs: null,
-        ev_charge_W: 0,
-        ev_charge_A: 0,
-        ev_charge_mode: 'off',
-        g2ev_W: 0,
-        pv2ev_W: 0,
-        b2ev_W: 0,
-        ev_soc_percent: null,
-        is_charging: false,
-        plan_valid: false,
-        reason,
-      });
-      return;
-    }
-
-    let row = rows[0];
-    for (let i = rows.length - 1; i >= 0; i--) {
-      if (rows[i].timestampMs <= nowMs) {
-        row = rows[i];
-        break;
+    // A missing/unreadable settings or data file must never break the charger feed.
+    const safely = async <T>(label: string, read: () => Promise<T>): Promise<T | null> => {
+      try {
+        return await read();
+      } catch (err) {
+        console.warn(`[ev/current] could not read ${label}:`, (err as Error).message);
+        return null;
       }
-    }
-
-    // Live home-battery floor: the plan already respects it, but the measured SoC can drift below
-    // the floor between solves. With EV plans the floor is the plan's dynamic one for this slot
-    // and grid charging was chosen on purpose (cheaper, or after the floor), so only a battery
-    // share is dropped. A missing/unreadable settings or data file must never break the
-    // charger feed, so the guard is skipped (fail-open to the plan) when either cannot be read.
-    const rulesPlan = plan.cfg?.ev?.fixedFlows != null;
-    let essSoc_percent: number | undefined;
-    let floor_percent = 0;
-    try {
-      const [settings, data] = await Promise.all([loadSettings(), loadData()]);
-      floor_percent = (rulesPlan ? row.essEvFloor_percent : settings?.evEssSocFloor_percent) ?? 0;
-      essSoc_percent = data?.soc?.value;
-    } catch (err) {
-      console.warn('[ev/current] could not read settings/data for the ESS floor guard:', (err as Error).message);
-    }
-
-    const gridPriceLimit = plan.cfg?.ev?.essFloorGridPriceLimit_cents_per_kWh;
-    const decision = applyEssFloorGuard({
-      ev_charge_W: row.ev_charge,
-      ev_charge_A: row.ev_charge_A,
-      ev_charge_mode: row.ev_charge_mode,
-      g2ev_W: row.g2ev,
-      pv2ev_W: row.pv2ev,
-      b2ev_W: row.b2ev,
-    }, essSoc_percent, floor_percent, rulesPlan || (gridPriceLimit != null && row.ic < gridPriceLimit));
-
-    res.json({
-      timestampMs: row.timestampMs,
-      ...decision,
-      ev_soc_percent: row.ev_soc_percent,
-      is_charging: decision.ev_charge_W > 0,
-      plan_valid: true,
-      override_active: false,
-      warnings: plan.summary?.warnings ?? [],
-    });
+    };
+    const [settings, data] = await Promise.all([safely('settings', loadSettings), safely('data', loadData)]);
+    const last = getLastPlan();
+    const plan: PlanSnapshot | null = last ? {
+      rows: last.rows,
+      stepMin: last.timing.stepMin,
+      startMs: last.timing.startMs,
+      peakTarget_W: last.cfg?.peakTarget_W ?? null,
+      rulesPlan: last.cfg?.ev?.fixedFlows != null,
+      gridPriceLimit_cents_per_kWh: last.cfg?.ev?.essFloorGridPriceLimit_cents_per_kWh,
+      warnings: last.summary?.warnings ?? [],
+    } : null;
+    res.json(await decideEvCurrent({
+      settings: settings ?? {},
+      data: data ?? {},
+      plan,
+      nowMs: Date.now(),
+      peek: req.query.peek === '1',
+    }));
   } catch (error) {
     next(toHttpError(error, 500, 'Failed to read the current EV decision'));
   }
 });
 
-// ----------------------------- Schedule entries -------------------------
-// A list of typed (arrival/departure/target) schedule entries, persisted in data.json.
-
-router.get('/schedule-entries', async (_req: Request, res: Response, next: NextFunction) => {
+// POST /ev/pause { minutes } or { until } — pause EV charging (e.g. from a Home Assistant
+// automation at a known load peak). The plan is unchanged; /ev/current reports 0 A until then.
+router.post('/pause', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { entries } = await loadActiveEvScheduleEntriesAndPrune();
-    res.json({ entries });
+    const body = (req.body ?? {}) as { minutes?: unknown; until?: unknown };
+    let untilMs: number;
+    if (body.until != null) {
+      untilMs = new Date(String(body.until)).getTime();
+      assertCondition(Number.isFinite(untilMs), 400, 'until must be a valid timestamp');
+    } else {
+      const minutes = Number(body.minutes ?? 15);
+      assertCondition(Number.isFinite(minutes) && minutes > 0 && minutes <= 24 * 60, 400, 'minutes must be in (0, 1440]');
+      untilMs = Date.now() + minutes * 60_000;
+    }
+    const data = await loadData();
+    const paused_until = new Date(untilMs).toISOString();
+    await saveData({ ...data, evPausedUntil: paused_until });
+    res.json({ paused_until });
   } catch (error) {
-    next(toHttpError(error, 500, 'Failed to read EV schedule entries'));
+    next(toHttpError(error, 500, 'Failed to pause EV charging'));
   }
 });
 
-router.post('/schedule-entries', async (req: Request, res: Response, next: NextFunction) => {
+// POST /ev/resume — end a pause.
+router.post('/resume', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    assertCondition(
-      req.body && typeof req.body === 'object' && !Array.isArray(req.body),
-      400,
-      'EV schedule entry payload must be an object',
-    );
-    const result = await createStoredEvScheduleEntry(req.body as EvScheduleEntryInput);
-    res.status(201).json(result);
+    const data = await loadData();
+    await saveData({ ...data, evPausedUntil: null });
+    res.json({ paused_until: null });
   } catch (error) {
-    next(toHttpError(error, 500, 'Failed to create EV schedule entry'));
-  }
-});
-
-router.patch('/schedule-entries/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    assertCondition(
-      req.body && typeof req.body === 'object' && !Array.isArray(req.body),
-      400,
-      'EV schedule entry payload must be an object',
-    );
-    const result = await updateStoredEvScheduleEntry(String(req.params.id), req.body as EvScheduleEntryInput);
-    res.json(result);
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to update EV schedule entry'));
-  }
-});
-
-router.delete('/schedule-entries/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    res.json(await deleteStoredEvScheduleEntry(String(req.params.id)));
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to delete EV schedule entry'));
+    next(toHttpError(error, 500, 'Failed to resume EV charging'));
   }
 });
 
@@ -220,9 +127,15 @@ function assertObjectBody(body: unknown): asserts body is EvPlanInput {
   assertCondition(!!body && typeof body === 'object' && !Array.isArray(body), 400, 'EV plan payload must be an object');
 }
 
+const PLAN_PREVIEW_DAYS = 8;
+
 router.get('/plans', async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json({ plans: await loadEvPlans() });
+    const plans = await loadEvPlans();
+    // The concrete moments of the coming days, for the chart markers and the list.
+    const nowMs = Date.now();
+    const occurrences = expandEvPlans(plans, nowMs, nowMs + PLAN_PREVIEW_DAYS * 24 * 60 * 60 * 1000);
+    res.json({ plans, occurrences });
   } catch (error) {
     next(toHttpError(error, 500, 'Failed to read EV plans'));
   }
@@ -251,39 +164,6 @@ router.delete('/plans/:id', async (req: Request, res: Response, next: NextFuncti
     res.json(await deleteStoredEvPlan(String(req.params.id)));
   } catch (error) {
     next(toHttpError(error, 500, 'Failed to delete EV plan'));
-  }
-});
-
-// ----------------------------- Trip usage presets -----------------------
-// Named, reusable trip usage estimates ("Knokke" → 35%), persisted in data.json.
-
-router.get('/trip-presets', async (_req: Request, res: Response, next: NextFunction) => {
-  try {
-    res.json({ presets: await loadEvTripPresets() });
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to read EV trip presets'));
-  }
-});
-
-// PUT rather than POST: saving an existing name overwrites its percentage.
-router.put('/trip-presets', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    assertCondition(
-      req.body && typeof req.body === 'object' && !Array.isArray(req.body),
-      400,
-      'EV trip preset payload must be an object',
-    );
-    res.json(await saveEvTripPreset(req.body as EvTripPresetInput));
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to save EV trip preset'));
-  }
-});
-
-router.delete('/trip-presets/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    res.json(await deleteEvTripPreset(String(req.params.id)));
-  } catch (error) {
-    next(toHttpError(error, 500, 'Failed to delete EV trip preset'));
   }
 });
 

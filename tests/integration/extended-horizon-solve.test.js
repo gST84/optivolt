@@ -68,8 +68,8 @@ function buildData() {
     },
     soc: { timestamp: NOW_ISO, value: 50 },
     // "80% in 3 days": a target far beyond the standard horizon.
-    evScheduleEntries: [{
-      id: 'tgt1', type: 'target', time: '2024-01-04T11:00:00Z', soc_percent: 80,
+    evPlans: [{
+      id: 'tgt1', type: 'target', enabled: true, weekdays: [], start: '2024-01-04T11:00:00Z', soc_percent: 80,
       createdAt: NOW_ISO, updatedAt: NOW_ISO,
     }],
   };

@@ -23,32 +23,6 @@ export function initEvPanelToggles(els) {
   });
 }
 
-/**
- * Derive the chart/table annotation inputs from the EV schedule entries: arrival and departure
- * times (multiple possible) and the away spans of trips. SoC deadlines are not derived here —
- * the solver resolves them (clamped to what is reachable, de-duped per slot) and the plan rows
- * carry the result as `ev_target_soc_percent`.
- */
-export function collectEvSettings(entries = []) {
-  const arrivals = [];
-  const departures = [];
-  const trips = [];
-  for (const e of entries) {
-    if (e.type === 'arrival') {
-      arrivals.push(e.time);
-    } else if (e.type === 'departure') {
-      departures.push(e.time);
-    } else if (e.type === 'trip') {
-      departures.push(e.time);
-      if (e.endTime) {
-        arrivals.push(e.endTime);
-        trips.push({ from: e.time, to: e.endTime });
-      }
-    }
-  }
-  return { arrivals, departures, trips };
-}
-
 export function updateEvPanel(els, rows, summary, stepSize_m = 15, evSettings = null) {
   // Callers pass null explicitly when EV support is off, and a default parameter only covers
   // undefined — so normalise here rather than relying on one.

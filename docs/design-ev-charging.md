@@ -19,7 +19,7 @@ bestaande functionaliteit plus de nieuwe eisen hieronder.
 | P2 | **De EV-beslissing is een vaste regel, geen vrije keuze van de solver.** De EV-regels (§ 6) leggen per kwartier de EV-stroom en de bron vast. De LP plant de ESS, het huis en het net daaromheen. Zo zie je in het plan precies de regel terug. |
 | P3 | **Alles zacht, nooit "Infeasible".** Doelen en grenzen die niet haalbaar zijn geven een zo goed mogelijk plan plus een melding *welk* doel gemist wordt en *waarom*. Alleen fysieke grenzen zijn hard. |
 | P4 | **De capaciteitspiek blijft bij het minimum.** De gefactureerde minimumpiek (2,5 kW in Vlaanderen) is de doelgrens, met een veiligheidsmarge zodat de piek niet kruipt. |
-| P5 | **Rangorde:** Direct laden > Eenmalig plan > Terugkerend plan. Een hoger plan schort een lager plan in hetzelfde tijdvak op, het verwijdert het niet. |
+| P5 | **Rangorde:** Direct laden > deadlines > goedkoopste vensters. Direct laden schort de plannen in zijn tijd op (verwijdert ze niet). Deadlines en vensters bestaan naast elkaar: de deadline wordt eerst ingepland, het venster vult daarna aan; een aankomst of vertrek verschuift enkel wanneer de auto thuis is. |
 
 ## 3. Begrippen
 
@@ -283,6 +283,16 @@ toegelaten_ev  = over / resttijd − huis_zonder_ev     (+ ESS- en PV-bijdrage)
   het statusblok, met een waarschuwing als ze boven 30 s ligt. Het document levert een
   voorbeeld-automatisering die elke 15 s oproept (`time_pattern`, `seconds: "/15"`).
 
+*Gebouwd (fase 4):* `lib/ev-guard.ts` + `api/services/ev-guard-service.ts`. De bewaker telt de
+netafname per kwartier op uit de live netsensor (tussen twee metingen geldt de vorige waarde,
+gaten tot een kwartier worden opgevuld) en berekent per oproep
+`EV-vermogen ≤ huidig EV-vermogen + toegelaten gemiddelde − huidige netafname`. Zo vangt de EV
+een huispiek (oven) op, en wordt een EV die uit de ESS laadt niet onnodig afgeremd (het net
+blijft daar ±0). PV die op dat moment teruggeleverd wordt mag er bovenop (V3), behalve als de
+EV al aan zijn maximum zit. De toestand (emmer, fasen, laatste opdracht) zit in het geheugen;
+na een herstart begint een nieuw kwartier. Is de netsensor onleesbaar of ouder dan de
+vangnet-tijd terwijl er een piekgrens geldt, dan volgt het vangnet (`grid_sensor_unavailable`).
+
 ### 7.4 Status op de EV-tab
 
 Klein blok: live netvermogen, doelgrens, gebruikt/over in de emmer van dit kwartier, betaalde
@@ -379,6 +389,26 @@ Bij `auto`: naar 3 fasen als het toegelaten vermogen een paar minuten ≥ ±4,3 
 naar 1 fase onder ±4,0 kW; nooit sneller dan de minimale wisseltijd. Planner en bewaker gebruiken
 dezelfde bereiken, zodat er nooit een vermogen gepland wordt dat de paal niet kan leveren.
 
+*Gebouwd (fase 4):*
+
+- Direct laden: in de planner een `direct`-verzoek vanaf nu tot de auto vertrekt, vóór alle
+  plannen in die tijd (die worden ingekort). `fixed` = gekozen stroom × spanning × fasen uit de
+  goedkoopste bron; `fast_ess` = PV + wat de ESS boven de ondergrens kan leveren, daarna net op
+  minimum of tot de piekgrens. "Piek negeren" heft enkel de piekgrens op, nooit `maxGridImport_W`.
+  Zonder geldig plan antwoordt `/ev/current` meteen met de gekozen stroom.
+- Vermogen van de lader = stroom × `evVoltage_V` × fasen (`api/services/ev-charger.ts`); bij
+  `auto` plant de planner van het 1-fase-minimum tot het 3-fasen-maximum en kiest de bewaker.
+- Fasewissel (`auto`): naar 3 fasen boven 105 % van het 3-fasen-minimum, na 2 min, terug onder
+  97 %, nooit sneller dan `evPhaseSwitchMinInterval_m`, behalve wanneer 3 fasen niet kunnen
+  draaien.
+- `POST /ev/pause` (`{ minutes }` of `{ until }`) en `POST /ev/resume`, bewaard als
+  `evPausedUntil` in `data.json`; knop "Pause 15 min" op de EV-tab.
+- Vangnet: geen of verlopen plan → `evFallbackMode` met `fallback_active: true` en de reden
+  (`no_plan`, `before_plan`, `expired_plan`). Voorbeeld-automatisering voor HA, met het vangnet
+  aan HA-kant: [ev-charger-automation.md](ev-charger-automation.md).
+- `/ev/current?peek=1` (het statusblok) verandert de bewaker niet en telt niet mee voor de
+  gemeten oproepfrequentie.
+
 ### 9.5 Meldingen
 
 Geen HA-notificaties (beslissing V6). Meldingen verschijnen enkel in Optivolt:
@@ -418,20 +448,33 @@ Wanneer:
 
 ## 11. Wat verdwijnt / blijft
 
-| Onderdeel | Lot |
+| Onderdeel | Lot (fase 7) |
 |---|---|
-| `lib/ev-cheapest-source.ts` (greedy na de solve) | **verdwijnt** → vervangen door de regels van § 6 |
-| EV-binaries in `build-lp.ts` (`ev_on`, `ev_grid_ok`, `ev_target_shortfall`) | **verdwijnen**; EV-stromen worden vaste invoer |
-| `evWeeklyCheapestSource`, `evOverrideEnabled/Current_A` | **migreren** naar plantype *goedkoopste* resp. *direct laden* |
-| `usage_percent` op trips | **migreert** naar km |
-| `ev-trip-usage.ts` (verbruiksvoorspelling) | blijft |
+| `lib/ev-cheapest-source.ts` (greedy na de solve) | **verwijderd** → regels van § 6 (`lib/ev-rules.ts`) |
+| Oud EV-schema en weekplanner in het scherm (`ev-schedule.js`, `ev-weekly.js`) | **verwijderd** → plannenblok (`app/src/ev-plans.js`) |
+| `/ev/schedule-entries`, `/ev/trip-presets` en hun opslag | **verwijderd** → `/ev/plans` |
+| Legacy-pad in planner en config-builder | **verwijderd**: de plannen sturen altijd (geen plannen = lege lijst) |
+| `evScheduleEntries`, `evWeeklySchedule`, `evWeeklyCheapestSource` | blijven enkel om bij de eerste keer om te zetten naar plannen |
+| EV-binaries / zachte doelen / forced slots in `build-lp.ts` | blijven in de LP (ook voor de upstream-PR's), maar de fork stuurt de EV met vaste stromen |
+| `ev-trip-usage.ts` (verbruiksvoorspelling) | blijft, recente weken wegen zwaarder (halfwaardetijd 14 dagen) |
 | `price-forecast-service.ts`, `extendedHorizonDays` | blijft |
 | `battery-energy-price.ts` | blijft als terugval (§ 5) |
-| `socTargets` / ESS-doel per plan | blijft, wordt zacht tier 2 |
+| `socTargets` / ESS-doel per plan | blijft, voor *goedkoopste*-vensters |
 | Rebalance-planning | blijft ongewijzigd |
 | DESS-mapping | blijft; EV-stromen komen uit de regels |
 
 Upstream-PR's (#208–#213) blijven los hiervan; dit ontwerp is voor de fork.
+
+*Gebouwd (fase 5–7):* plannenblok op de EV-tab met lijst (aan/uit per plan) en editor: type,
+weekdagen (geen = eenmalig, dan datum + tijd), tijden, SoC, afstand (trip), ESS-doel en "bij de
+ondergrens" (goedkoopste). Markeringen op de grafieken komen uit de momenten die `GET /ev/plans`
+meegeeft. Named trip-presets (in %) zijn vervallen; een trip heeft nu een afstand.
+
+*Gebouwd (fase 6):* de dagelijkse verbruiksvoorspelling weegt recente dagen zwaarder
+(halfwaardetijd 14 dagen). Met een kilometerstand-sensor leert Optivolt het verbruik per rit
+(`SoC-daling × capaciteit ÷ km`, min. 3 ritten en 30 km) en gebruikt dat voor trips in plaats van
+de instelling; de Predictions-tab toont het. Het ESS voorladen voor een venster is het ESS-doel
+van het plan met de "goedkope 15 %"-boete (§ 4.5).
 
 ## 12. Testscenario's
 
