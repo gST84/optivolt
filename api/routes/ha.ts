@@ -43,12 +43,9 @@ router.get('/entities', async (req: Request, res: Response, next: NextFunction) 
     const settings = await loadSettings();
     assertCondition(!!settings.haUrl || isAddon(), 422, 'HA URL is not configured');
     const domains = String(req.query.domains ?? '').split(',').map((d) => d.trim()).filter(Boolean);
-    let states;
-    try {
-      states = await fetchHaStates({ haUrl: settings.haUrl, haToken: settings.haToken });
-    } catch (error) {
+    const states = await fetchHaStates({ haUrl: settings.haUrl, haToken: settings.haToken }).catch((error: unknown) => {
       throw toHttpError(error, 422, error instanceof Error ? error.message : 'Failed to list entities');
-    }
+    });
     const entities = states
       .filter((s) => !domains.length || domains.includes(s.entity_id.split('.')[0]))
       .map((s) => ({

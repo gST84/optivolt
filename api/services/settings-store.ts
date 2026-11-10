@@ -58,12 +58,12 @@ const STRING_FIELDS: (keyof Settings)[] = [
 ];
 
 // Settings restricted to a fixed set of values.
-const ENUM_FIELDS: Partial<Record<keyof Settings, readonly string[]>> = {
-  evPhaseMode: ['1', '3', 'auto'],
-  evDirectMode: ['fixed', 'fast_ess'],
-  evSlowGridMode: ['min', 'peak'],
-  evFallbackMode: ['stop', 'min'],
-};
+const ENUM_FIELDS: ReadonlyArray<[keyof Settings, readonly string[]]> = [
+  ['evPhaseMode', ['1', '3', 'auto']],
+  ['evDirectMode', ['fixed', 'fast_ess']],
+  ['evSlowGridMode', ['min', 'peak']],
+  ['evFallbackMode', ['stop', 'min']],
+];
 
 const TERMINAL_SOC_VALUATIONS: readonly TerminalSocValuation[] = ['zero', 'min', 'avg', 'max', 'custom'];
 
@@ -115,8 +115,8 @@ function validateSettings(s: Settings): Settings {
     }
   }
 
-  for (const [field, domain] of Object.entries(ENUM_FIELDS)) {
-    const value = s[field as keyof Settings];
+  for (const [field, domain] of ENUM_FIELDS) {
+    const value = s[field];
     if (typeof value !== 'string' || !domain.includes(value)) {
       throw new SettingsValidationError(`Invalid setting: ${field} must be one of ${domain.join(', ')}`);
     }
