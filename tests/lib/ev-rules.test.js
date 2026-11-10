@@ -93,3 +93,31 @@ describe('applyPvSurplus', () => {
     expect(nearlyFull.pv2ev[1]).toBe(0);
   });
 });
+
+describe('direct charging ("Charge now")', () => {
+  const direct = { kind: 'direct', planId: 'now', fromSlot: 0, toSlot: T, soc_Wh: 64000 };
+
+  it('fast from the home battery, then the grid at the minimum once the floor is reached', () => {
+    const { flows } = applyEvRequest(house(prices), ctx, ev, emptyEvFlows(T), { ...direct, directMode: 'fast_ess', slowGrid: 'min' }, floors);
+    expect(flows.b2ev.slice(0, 4)).toEqual([3680, 3680, 2640, 0]);
+    expect(flows.g2ev.slice(3, 5)).toEqual([1380, 1380]);
+  });
+
+  it('fast from the home battery, then up to the peak target with slowGrid "peak"', () => {
+    const { flows } = applyEvRequest(house(prices), ctx, ev, emptyEvFlows(T), { ...direct, directMode: 'fast_ess', slowGrid: 'peak' }, floors);
+    expect(flows.g2ev[3]).toBe(2300);
+  });
+
+  it('a fixed power from the cheapest source, the other for the rest', () => {
+    const { flows } = applyEvRequest(house(prices), ctx, ev, emptyEvFlows(T), { ...direct, directMode: 'fixed', directPower_W: 3000 }, floors);
+    expect(flows.b2ev[0]).toBe(3000);                        // 30 ct grid vs 17 ct battery
+    expect(flows.g2ev[2] + flows.b2ev[2]).toBe(3000);        // 10 ct: grid first (2300), battery the rest
+    expect(flows.g2ev[2]).toBe(2300);
+  });
+
+  it('may ignore the peak target, never the grid connection', () => {
+    const atFloor = house(prices, { soc_Wh: 10000 });
+    const { flows } = applyEvRequest(atFloor, { ...ctx, maxGridImport_W: 3000 }, ev, emptyEvFlows(T), { ...direct, directMode: 'fixed', directPower_W: 3680, ignorePeak: true }, floors);
+    expect(flows.g2ev[0]).toBe(3000);
+  });
+});

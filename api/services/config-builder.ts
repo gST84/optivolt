@@ -173,7 +173,8 @@ export function buildSolverConfigFromSettings(
     const occurrences = expandEvPlans(data.evPlans, nowMs, horizonEndMs);
     const entries = occurrencesToEntries(occurrences, settings, nowMs);
     // Legacy knobs off: the weekly schedule became plans, and the rules replace the LP's floor.
-    const evSettings = { ...settings, evWeeklySchedule: [], evWeeklyCheapestSource: false, evEssSocFloor_percent: 0 };
+    // "Charge now" is a rule request too (planner), not the LP's forced slots.
+    const evSettings = { ...settings, evWeeklySchedule: [], evWeeklyCheapestSource: false, evEssSocFloor_percent: 0, evOverrideEnabled: false };
     ev = buildEvConfig(evSettings, entries, evState, nowMs, T, evOpts);
     if (ev) {
       evRuleRequests = buildEvRuleRequests(occurrences, ev.availabilityWindows, {

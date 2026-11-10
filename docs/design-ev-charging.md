@@ -283,6 +283,16 @@ toegelaten_ev  = over / resttijd − huis_zonder_ev     (+ ESS- en PV-bijdrage)
   het statusblok, met een waarschuwing als ze boven 30 s ligt. Het document levert een
   voorbeeld-automatisering die elke 15 s oproept (`time_pattern`, `seconds: "/15"`).
 
+*Gebouwd (fase 4):* `lib/ev-guard.ts` + `api/services/ev-guard-service.ts`. De bewaker telt de
+netafname per kwartier op uit de live netsensor (tussen twee metingen geldt de vorige waarde,
+gaten tot een kwartier worden opgevuld) en berekent per oproep
+`EV-vermogen ≤ huidig EV-vermogen + toegelaten gemiddelde − huidige netafname`. Zo vangt de EV
+een huispiek (oven) op, en wordt een EV die uit de ESS laadt niet onnodig afgeremd (het net
+blijft daar ±0). PV die op dat moment teruggeleverd wordt mag er bovenop (V3), behalve als de
+EV al aan zijn maximum zit. De toestand (emmer, fasen, laatste opdracht) zit in het geheugen;
+na een herstart begint een nieuw kwartier. Is de netsensor onleesbaar of ouder dan de
+vangnet-tijd terwijl er een piekgrens geldt, dan volgt het vangnet (`grid_sensor_unavailable`).
+
 ### 7.4 Status op de EV-tab
 
 Klein blok: live netvermogen, doelgrens, gebruikt/over in de emmer van dit kwartier, betaalde
@@ -378,6 +388,26 @@ max. stroom.
 Bij `auto`: naar 3 fasen als het toegelaten vermogen een paar minuten ≥ ±4,3 kW blijft; terug
 naar 1 fase onder ±4,0 kW; nooit sneller dan de minimale wisseltijd. Planner en bewaker gebruiken
 dezelfde bereiken, zodat er nooit een vermogen gepland wordt dat de paal niet kan leveren.
+
+*Gebouwd (fase 4):*
+
+- Direct laden: in de planner een `direct`-verzoek vanaf nu tot de auto vertrekt, vóór alle
+  plannen in die tijd (die worden ingekort). `fixed` = gekozen stroom × spanning × fasen uit de
+  goedkoopste bron; `fast_ess` = PV + wat de ESS boven de ondergrens kan leveren, daarna net op
+  minimum of tot de piekgrens. "Piek negeren" heft enkel de piekgrens op, nooit `maxGridImport_W`.
+  Zonder geldig plan antwoordt `/ev/current` meteen met de gekozen stroom.
+- Vermogen van de lader = stroom × `evVoltage_V` × fasen (`api/services/ev-charger.ts`); bij
+  `auto` plant de planner van het 1-fase-minimum tot het 3-fasen-maximum en kiest de bewaker.
+- Fasewissel (`auto`): naar 3 fasen boven 105 % van het 3-fasen-minimum, na 2 min, terug onder
+  97 %, nooit sneller dan `evPhaseSwitchMinInterval_m`, behalve wanneer 3 fasen niet kunnen
+  draaien.
+- `POST /ev/pause` (`{ minutes }` of `{ until }`) en `POST /ev/resume`, bewaard als
+  `evPausedUntil` in `data.json`; knop "Pause 15 min" op de EV-tab.
+- Vangnet: geen of verlopen plan → `evFallbackMode` met `fallback_active: true` en de reden
+  (`no_plan`, `before_plan`, `expired_plan`). Voorbeeld-automatisering voor HA, met het vangnet
+  aan HA-kant: [ev-charger-automation.md](ev-charger-automation.md).
+- `/ev/current?peek=1` (het statusblok) verandert de bewaker niet en telt niet mee voor de
+  gemeten oproepfrequentie.
 
 ### 9.5 Meldingen
 

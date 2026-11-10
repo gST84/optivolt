@@ -7,6 +7,7 @@ import {
   wireEvSensorInputs,
 } from "./src/ev-settings.js";
 import { createEvScheduleController } from "./src/ev-schedule.js";
+import { initEvLiveStatus } from "./src/ev-live.js";
 import { wireWeeklySchedule } from "./src/ev-weekly.js";
 import { mountChartPlaceholders } from "./src/chart-empty.js";
 import { initOptimizerQuickSettings } from "./src/optimizer-quick-settings.js";
@@ -165,6 +166,7 @@ async function boot() {
   // Not awaited — HA may be slow or unconfigured; the initial solve should not wait for it.
   void refreshEvSensorStates(els);
   void loadHaEntityOptions(els);
+  initEvLiveStatus();
 
   // Reveal the cards *before* the first solve. Cards are opacity:0 until
   // revealed, so revealing afterwards left the whole panel blank for the

@@ -27,8 +27,11 @@ export interface EvFlows {
 }
 
 export interface EvRuleRequest {
-  /** `cheapest`: charge per quarter from the cheapest source, no deadline. `deadline`: reach `soc_Wh` by `toSlot`. */
-  kind: 'cheapest' | 'deadline';
+  /**
+   * `cheapest`: charge per quarter from the cheapest source, no deadline. `deadline`: reach
+   * `soc_Wh` by `toSlot`. `direct`: "Charge now" (§ 4.2), from now until the car leaves.
+   */
+  kind: 'cheapest' | 'deadline' | 'direct';
   planId: string;
   /** First slot the request may charge in. */
   fromSlot: number;
@@ -38,6 +41,14 @@ export interface EvRuleRequest {
   soc_Wh: number;
   /** Cheapest only: what to do once the home battery reaches its floor. */
   afterFloor?: 'stop' | 'grid';
+  /** Direct only: a fixed power, or as fast as the home battery can feed. */
+  directMode?: 'fixed' | 'fast_ess';
+  /** Direct + fixed: the power asked for, in W. */
+  directPower_W?: number;
+  /** Direct + fast_ess: below the battery floor charge at the minimum, or up to the peak target. */
+  slowGrid?: 'min' | 'peak';
+  /** Direct only: the peak target does not apply. */
+  ignorePeak?: boolean;
 }
 
 export interface EvRuleContext {
@@ -295,6 +306,55 @@ function applyDeadline(
 }
 
 /**
+ * Direct charging (§ 4.2), slot by slot until the ceiling:
+ * - `fixed`: the chosen power from the cheapest sources (PV, then grid or battery by cost, the
+ *   other one for the rest), within the peak target unless it is ignored;
+ * - `fast_ess`: PV plus whatever the home battery can feed above its floor; once that is below the
+ *   charger minimum, the grid at the minimum (`slowGrid: 'min'`) or up to the peak target.
+ */
+function applyDirect(
+  rows: EvRuleRow[], ctx: EvRuleContext, ev: EvConfig, flows: EvFlows,
+  req: EvRuleRequest, limits: SlotLimits,
+): void {
+  const T = rows.length;
+  const whPerW = (ctx.stepSize_m / 60) * (ev.evChargeEfficiency_percent / 100);
+  const essCost = essCostPerKWh(ctx);
+  for (let t = Math.max(0, req.fromSlot); t < Math.min(T, req.toSlot); t++) {
+    const series = evSocSeries(ev, flows, T, ctx.stepSize_m);
+    const room_Wh = Math.min(req.soc_Wh, ev.evBatteryCapacity_Wh) - series[t];
+    if (room_Wh <= 0) continue;
+    const already = flows.g2ev[t] + flows.pv2ev[t] + flows.b2ev[t];
+    const max_W = Math.min(ev.evMaxChargePower_W - already, room_Wh / whPerW, capacityRoom_W(series, t, ev.evBatteryCapacity_Wh, whPerW));
+    if (max_W <= 0) continue;
+
+    const pv = Math.floor(Math.min(limits.pv(t), max_W));
+    let grid = 0;
+    let battery = 0;
+    if (req.directMode === 'fast_ess') {
+      battery = Math.floor(Math.min(max_W - pv, limits.battery(t)));
+      if (pv + battery < ev.evMinChargePower_W) {
+        const want = req.slowGrid === 'peak' ? max_W - pv - battery : ev.evMinChargePower_W - pv - battery;
+        grid = Math.floor(Math.max(0, Math.min(want, limits.grid(t))));
+      }
+    } else {
+      const want = Math.min(max_W, req.directPower_W ?? ev.evMaxChargePower_W) - pv;
+      if (rows[t].ic <= essCost) {
+        grid = Math.floor(Math.max(0, Math.min(want, limits.grid(t))));
+        battery = Math.floor(Math.max(0, Math.min(want - grid, limits.battery(t))));
+      } else {
+        battery = Math.floor(Math.max(0, Math.min(want, limits.battery(t))));
+        grid = Math.floor(Math.max(0, Math.min(want - battery, limits.grid(t))));
+      }
+    }
+    if (already + pv + grid + battery < ev.evMinChargePower_W) continue;
+    flows.pv2ev[t] += pv;
+    flows.g2ev[t] += grid;
+    flows.b2ev[t] += battery;
+    limits.takeBattery(t, battery);
+  }
+}
+
+/**
  * Fix the EV flows for one request on top of `prior`, from house rows solved with `prior`.
  * `floors_Wh` is the dynamic home battery floor per slot (lib/ess-ev-floor.ts).
  */
@@ -308,9 +368,12 @@ export function applyEvRequest(
 ): EvRuleResult {
   const T = rows.length;
   const flows = copyFlows(prior);
-  const limits = new SlotLimits(rows, ctx, floors_Wh, flows, prior);
-  if (req.kind === 'cheapest') applyCheapest(rows, ctx, ev, flows, prior, req, limits);
-  else applyDeadline(rows, ctx, ev, flows, req, limits);
+  // "Charge now" may ignore the peak target; the hard grid limit always holds.
+  const reqCtx = req.kind === 'direct' && req.ignorePeak ? { ...ctx, peakTarget_W: null } : ctx;
+  const limits = new SlotLimits(rows, reqCtx, floors_Wh, flows, prior);
+  if (req.kind === 'cheapest') applyCheapest(rows, reqCtx, ev, flows, prior, req, limits);
+  else if (req.kind === 'direct') applyDirect(rows, reqCtx, ev, flows, req, limits);
+  else applyDeadline(rows, reqCtx, ev, flows, req, limits);
 
   const end = Math.max(1, Math.min(T, req.toSlot));
   const reached_Wh = evSocSeries(ev, flows, end, ctx.stepSize_m)[end - 1] ?? 0;

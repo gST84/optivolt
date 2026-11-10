@@ -78,10 +78,26 @@ describe('GET /ev/current', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('returns 404 when no plan has been computed', async () => {
+  it('falls back when no plan has been computed (stop when the setting cannot be read)', async () => {
     getLastPlan.mockReturnValue(null);
     const res = await request(app).get('/ev/current');
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ reason: 'no_plan', fallback_active: true, is_charging: false, plan_valid: false });
+  });
+
+  it('falls back to the minimum current when that is the chosen fallback', async () => {
+    getLastPlan.mockReturnValue(null);
+    loadSettings.mockResolvedValue({ evFallbackMode: 'min', evMinChargeCurrent_A: 6, evMaxChargeCurrent_A: 16 });
+    const res = await request(app).get('/ev/current');
+    expect(res.body).toMatchObject({ reason: 'no_plan', fallback_active: true, current_A: 6, ev_charge_W: 1380, is_charging: true });
+  });
+
+  it('reports 0 A while paused through the API', async () => {
+    getLastPlan.mockReturnValue(mockPlan);
+    vi.setSystemTime(START_MS + 500_000);
+    loadData.mockResolvedValue({ evPausedUntil: new Date(START_MS + 3_600_000).toISOString() });
+    const res = await request(app).get('/ev/current');
+    expect(res.body).toMatchObject({ reason: 'paused_api', is_charging: false, current_A: 0 });
   });
 
   it('returns current slot data with is_charging flag', async () => {
@@ -305,5 +321,29 @@ describe('/ev/trip-presets CRUD', () => {
       ev_charge_A: 10, ev_charge_W: 2300, ev_charge_mode: 'fixed', is_charging: true,
       override_active: true, plan_valid: false,
     });
+  });
+});
+
+describe('POST /ev/pause and /ev/resume', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    loadData.mockResolvedValue({});
+    saveData.mockResolvedValue();
+  });
+
+  it('pauses for a number of minutes and resumes', async () => {
+    const res = await request(app).post('/ev/pause').send({ minutes: 30 });
+    expect(res.status).toBe(200);
+    expect(new Date(res.body.paused_until).getTime()).toBeGreaterThan(Date.now() + 29 * 60_000);
+    expect(saveData).toHaveBeenCalledWith(expect.objectContaining({ evPausedUntil: res.body.paused_until }));
+
+    const resumed = await request(app).post('/ev/resume');
+    expect(resumed.body).toEqual({ paused_until: null });
+    expect(saveData).toHaveBeenLastCalledWith(expect.objectContaining({ evPausedUntil: null }));
+  });
+
+  it('rejects a bad duration', async () => {
+    expect((await request(app).post('/ev/pause').send({ minutes: -1 })).status).toBe(400);
+    expect((await request(app).post('/ev/pause').send({ until: 'soon' })).status).toBe(400);
   });
 });

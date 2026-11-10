@@ -272,6 +272,8 @@ export interface Data {
   evLastState?: EvLastState;
   /** Average price of the energy in the home battery, kept from Home Assistant power sensors. */
   batteryLedger?: BatteryLedger;
+  /** EV charging paused through POST /ev/pause until this time (ISO); the plan is unchanged. */
+  evPausedUntil?: string | null;
 }
 
 /** A named, reusable trip usage estimate ("Brussels commute" → 18%). */

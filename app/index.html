@@ -1113,6 +1113,27 @@
             <span class="toggle-knob"></span>
             <span class="text-sm text-slate-600 dark:text-slate-400">Enable EV charging</span>
           </label>
+          <!-- Live charger status (docs/design-ev-charging.md § 7.4) -->
+          <div id="ev-live" class="rounded-lg border border-slate-200/70 dark:border-white/10 p-3">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Charger now</span>
+              <span>
+                <button id="ev-pause-btn" type="button"
+                  class="text-xs font-medium text-sky-600 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300">Pause 15 min</button>
+                <button id="ev-resume-btn" type="button" hidden
+                  class="text-xs font-medium text-sky-600 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300">Resume</button>
+              </span>
+            </div>
+            <dl class="mt-2 space-y-1 text-xs">
+              <div class="flex justify-between gap-3"><dt class="text-slate-500 dark:text-slate-400">Command</dt><dd id="ev-live-command" class="tabular-nums text-right">—</dd></div>
+              <div class="flex justify-between gap-3"><dt class="text-slate-500 dark:text-slate-400">Why</dt><dd id="ev-live-reason" class="tabular-nums text-right">—</dd></div>
+              <div class="flex justify-between gap-3"><dt class="text-slate-500 dark:text-slate-400">Grid now</dt><dd id="ev-live-grid" class="tabular-nums text-right">—</dd></div>
+              <div class="flex justify-between gap-3"><dt class="text-slate-500 dark:text-slate-400">Peak target</dt><dd id="ev-live-target" class="tabular-nums text-right">—</dd></div>
+              <div class="flex justify-between gap-3"><dt class="text-slate-500 dark:text-slate-400">This quarter</dt><dd id="ev-live-bucket" class="tabular-nums text-right">—</dd></div>
+              <div class="flex justify-between gap-3"><dt class="text-slate-500 dark:text-slate-400">Month peak</dt><dd id="ev-live-month" class="tabular-nums text-right">—</dd></div>
+              <div class="flex justify-between gap-3"><dt class="text-slate-500 dark:text-slate-400">Charger asks every</dt><dd id="ev-live-poll" class="tabular-nums text-right">—</dd></div>
+            </dl>
+          </div>
           <!-- Manual override: charge now at a chosen current, whatever the plan says -->
           <div class="rounded-lg border border-slate-200/70 dark:border-white/10 p-3">
             <div class="flex flex-wrap items-center justify-between gap-2">

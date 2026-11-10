@@ -324,7 +324,7 @@ export function occurrencesToEntries(
 
 /** A charging request for the EV rules (lib/ev-rules.ts), in slots of the plan. */
 export interface EvRuleRequestFromPlan {
-  kind: 'cheapest' | 'deadline';
+  kind: 'cheapest' | 'deadline' | 'direct';
   planId: string;
   fromSlot: number;
   toSlot: number;
@@ -334,6 +334,11 @@ export interface EvRuleRequestFromPlan {
   afterFloor?: EvAfterFloor;
   /** Cheapest only: home battery SoC wanted at the window start, in %. */
   ess_soc_percent?: number;
+  /** Direct only ("Charge now"): see lib/ev-rules.ts EvRuleRequest. */
+  directMode?: 'fixed' | 'fast_ess';
+  directPower_W?: number;
+  slowGrid?: 'min' | 'peak';
+  ignorePeak?: boolean;
 }
 
 /**

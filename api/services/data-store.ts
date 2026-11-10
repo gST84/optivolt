@@ -74,6 +74,9 @@ export function validateData(d: Data): Data {
       validateEvPlan(plan);
     }
   }
+  if (d.evPausedUntil != null && Number.isNaN(new Date(d.evPausedUntil).getTime())) {
+    throw new Error(`Invalid evPausedUntil: not a valid timestamp (${d.evPausedUntil})`);
+  }
   if (d.batteryLedger !== undefined) {
     const l = d.batteryLedger;
     if (!l || typeof l !== 'object' || ![l.energy_Wh, l.cost_cents, l.updatedAtMs].every(Number.isFinite)) {

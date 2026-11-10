@@ -28,6 +28,7 @@ import { currentLedgerPrice, refreshBatteryLedgerAndPersist } from './battery-le
 import { computeDynamicEssFloor } from '../../lib/ess-ev-floor.ts';
 import { applyEvRequest, applyPvSurplus, emptyEvFlows, fitDropsToFlows, type EvRuleContext, type EvRuleRow } from '../../lib/ev-rules.ts';
 import { loadEvPlans } from './ev-plan-store.ts';
+import { powerForCurrent } from './ev-charger.ts';
 import type { EvRuleRequestFromPlan } from './ev-plans.ts';
 
 // How many slots we push into Dynamic ESS
@@ -339,7 +340,7 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
   // around all of them. The home battery is stocked ahead of each stretch (essTargets). These are
   // quick solves: nothing about the EV is left for the solver to decide. If one fails, the plan
   // falls back to deadline-driven charging.
-  if (evRuleRequests && cfg.ev && !settings.evOverrideEnabled) {
+  if (evRuleRequests && cfg.ev) {
     // EV charging as a fixed rule (docs/design-ev-charging.md § 6): request by request in time
     // order, the house plan is solved with the EV flows decided so far and the rules fix the
     // flows for that request; PV surplus outside the plans goes to the EV last. The final solve
@@ -385,8 +386,28 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
         fixedFloor_percent: settings.evEssSocFloor_percent,
         margin_Wh: (settings.evEssFloorMargin_kWh ?? 0) * 1000,
       };
+      // "Charge now" (§ 4.2): from now until the car leaves, ahead of every plan in that time.
+      let requests: EvRuleRequestFromPlan[] = evRuleRequests;
+      const home = ev.availabilityWindows[0];
+      if (settings.evOverrideEnabled && home?.startSlot === 0) {
+        const end = home.endSlot;
+        const ceiling_percent = settings.evMaxSoc_percent ?? 100;
+        requests = [
+          {
+            kind: 'direct', planId: 'charge-now', fromSlot: 0, toSlot: end,
+            soc_Wh: (ceiling_percent / 100) * ev.evBatteryCapacity_Wh, soc_percent: ceiling_percent,
+            directMode: settings.evDirectMode ?? 'fixed',
+            directPower_W: Math.min(ev.evMaxChargePower_W, Math.max(ev.evMinChargePower_W, powerForCurrent(settings, settings.evOverrideCurrent_A))),
+            slowGrid: settings.evSlowGridMode ?? 'min',
+            ignorePeak: settings.evDirectIgnorePeak === true,
+          },
+          ...evRuleRequests
+            .map((r) => ({ ...r, fromSlot: Math.max(r.fromSlot, end) }))
+            .filter((r) => r.toSlot > r.fromSlot),
+        ];
+      }
       let flows = emptyEvFlows(T);
-      for (const req of evRuleRequests) {
+      for (const req of requests) {
         const rows = await solveRows(withFlows(flows, req.fromSlot));
         const result = applyEvRequest(rows as EvRuleRow[], ruleCtx, ev, flows, req, computeDynamicEssFloor(rows, floorOpts));
         flows = result.flows;
