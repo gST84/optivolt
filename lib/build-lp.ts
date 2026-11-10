@@ -41,6 +41,8 @@ export function buildLP({
   socTargets = [],
   socTargetPenalty_cents_per_kWh = 200,
   socFloors = [],
+  peakTarget_W,
+  peakPenalty_cents_per_kW = PEAK_PENALTY_CENTS_PER_KW,
 }: SolverConfig): string {
   const T = load_W.length;
   if (pv_W.length !== T || importPrice.length !== T || exportPrice.length !== T) {
@@ -248,6 +250,10 @@ export function buildLP({
     }
     objTerms.push(` + ${toNum(socShortfallCoeff)} ${socShortfall(t)}`);
   }
+  // Capacity tariff: the highest import above the peak target costs once per kW. A peak that is
+  // already over the target is then free to reuse for the rest of the horizon, like a monthly peak.
+  const peakActive = peakTarget_W != null && Number.isFinite(peakTarget_W) && peakTarget_W >= 0 && peakPenalty_cents_per_kW > 0;
+  if (peakActive) objTerms.push(` + ${toNum(peakPenalty_cents_per_kW / 1000)} ${PEAK_OVER_VAR}`);
   // Terminal SOC valuation
   if (terminalPrice_cents_per_Wh > 0) {
     objTerms.push(` - ${toNum(terminalPrice_cents_per_Wh)} ${soc(T - 1)}`);
@@ -320,6 +326,9 @@ export function buildLP({
     // Grid import/export limits
     const gridEvTerm = evActive ? ` + ${gridToEv(t)}` : '';
     lines.push(` c_grid_import_cap_${t}: ${gridToLoad(t)} + ${gridToBattery(t)}${gridEvTerm} <= ${maxGridImport_W}`);
+    if (peakActive) {
+      lines.push(` c_peak_${t}: ${gridToLoad(t)} + ${gridToBattery(t)}${gridEvTerm} - ${PEAK_OVER_VAR} <= ${toNum(peakTarget_W as number)}`);
+    }
     lines.push(` c_grid_export_cap_${t}: ${pvToGrid(t)} + ${batteryToGrid(t)} <= ${maxGridExport_W}`);
 
     // Soft min SOC constraint
@@ -486,6 +495,7 @@ export function buildLP({
     for (const tg of evTargets) lines.push(` ${evTargetShortfall(tg.slot)} >= 0`);
   }
   for (const tg of socTargetsInRange) lines.push(` ${socTargetShortfall(tg.slot)} >= 0`);
+  if (peakActive) lines.push(` ${PEAK_OVER_VAR} >= 0`);
   lines.push("");
 
   if (D > 0 || evActive) {
@@ -512,6 +522,15 @@ export function buildLP({
 
   return lines.join("\n");
 }
+
+/** Single LP variable: W by which the horizon's highest grid import exceeds the peak target. */
+export const PEAK_OVER_VAR = 'peak_over';
+
+/**
+ * Default cost of exceeding the peak target, in c€ per kW: about a month of the Flemish capacity
+ * tariff, so the plan spreads grid charging to stay under the target.
+ */
+export const PEAK_PENALTY_CENTS_PER_KW = 500;
 
 function selectTerminalPriceCentsPerKWh(mode: TerminalSocValuation, prices: number[], customPrice_cents_per_kWh = 0): number {
   if (mode === "min") return Math.min(...prices);

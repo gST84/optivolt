@@ -1,0 +1,15 @@
+{
+  "name": "Peak target: cheap-hour grid charging is spread to stay under 2.3 kW",
+  "config": { "initialSoc_percent": 15, "maxGridImport_W": 9000, "peakTarget_W": 2300 },
+  "hourly": {
+    "importPrice": [12, 11, 10, 10, 11, 14, 25, 35, 35, 30, 28, 28, 28, 28, 30, 32, 36, 42, 45, 42, 36, 30, 25, 20],
+    "exportPrice": [2],
+    "load_W": [400],
+    "pv_W": [0]
+  },
+  "checks": [
+    { "type": "status", "value": "Optimal" },
+    { "type": "max", "field": "imp", "value": 2300 },
+    { "type": "energyAtLeast", "field": "g2b", "fromHour": 0, "toHour": 6, "value_Wh": 8000 }
+  ]
+}

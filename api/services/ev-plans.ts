@@ -280,3 +280,128 @@ export function migrateLegacyEvPlans(src: LegacyEvPlanSources): EvPlan[] {
   }
   return plans;
 }
+
+// ----------------------------- Towards the planner -----------------------------
+
+/** Share of the EV battery a trip uses, in %, from its distance and the consumption setting. */
+export function tripUsagePercent(distance_km: number, consumption_kWh_per_100km: number, capacity_kWh: number): number {
+  if (!(capacity_kWh > 0)) return 0;
+  return Math.min(100, Math.max(0, (distance_km * consumption_kWh_per_100km / 100) / capacity_kWh * 100));
+}
+
+/**
+ * Occurrences as schedule entries, so the existing availability sweep (ev-config-builder.ts)
+ * works out when the car is home, its arrival SoC and trip drops. A cheapest window is an arrival
+ * at its start (only when still ahead: a car away during a running window is not assumed home)
+ * and a departure at its end. Suspended occurrences are left out.
+ */
+export function occurrencesToEntries(
+  occurrences: EvPlanOccurrence[],
+  opts: { evConsumption_kWh_per_100km: number; evBatteryCapacity_kWh: number },
+  nowMs: number,
+): EvScheduleEntry[] {
+  const stamp = new Date(nowMs).toISOString();
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const entries: EvScheduleEntry[] = [];
+  for (const o of occurrences) {
+    if (o.suspended) continue;
+    const base = { id: `${o.planId}@${o.startMs}`, createdAt: stamp, updatedAt: stamp };
+    const soc = o.soc_percent != null ? { soc_percent: o.soc_percent } : {};
+    if (o.type === 'trip' && o.endMs != null) {
+      entries.push({
+        ...base, type: 'trip', time: iso(o.startMs), endTime: iso(o.endMs),
+        usage_percent: tripUsagePercent(o.distance_km ?? 0, opts.evConsumption_kWh_per_100km, opts.evBatteryCapacity_kWh),
+      });
+    } else if (o.type === 'cheapest' && o.endMs != null) {
+      if (o.startMs > nowMs) entries.push({ ...base, id: `${base.id}-arrival`, type: 'arrival', time: iso(o.startMs) });
+      entries.push({ ...base, id: `${base.id}-departure`, type: 'departure', time: iso(o.endMs) });
+    } else if (o.type === 'target' || o.type === 'departure' || o.type === 'arrival') {
+      entries.push({ ...base, type: o.type, time: iso(o.startMs), ...soc });
+    }
+  }
+  return entries;
+}
+
+/** A charging request for the EV rules (lib/ev-rules.ts), in slots of the plan. */
+export interface EvRuleRequestFromPlan {
+  kind: 'cheapest' | 'deadline';
+  planId: string;
+  fromSlot: number;
+  toSlot: number;
+  soc_Wh: number;
+  /** The SoC the plan asks for, in %, for the warning when it is missed. */
+  soc_percent: number;
+  afterFloor?: EvAfterFloor;
+  /** Cheapest only: home battery SoC wanted at the window start, in %. */
+  ess_soc_percent?: number;
+}
+
+/**
+ * Turn occurrences into rule requests within the car's availability windows.
+ *
+ * - target / departure with a SoC / trip: a deadline at its time (a trip needs its usage plus the
+ *   trip buffer at departure), charging from the start of the window the car is home in. A
+ *   deadline in a gap (car away) moves back to the end of the window before it.
+ * - cheapest: its window clipped to every availability window it overlaps.
+ */
+export function buildEvRuleRequests(
+  occurrences: EvPlanOccurrence[],
+  windows: Array<{ startSlot: number; endSlot: number }>,
+  opts: {
+    nowMs: number;
+    stepSize_m: number;
+    T: number;
+    evBatteryCapacity_kWh: number;
+    evMaxSoc_percent: number;
+    evConsumption_kWh_per_100km: number;
+    evTripSocBuffer_percent: number;
+  },
+): EvRuleRequestFromPlan[] {
+  const stepMs = opts.stepSize_m * 60_000;
+  const toSlot = (ms: number) => Math.max(0, Math.min(opts.T, Math.floor((ms - opts.nowMs) / stepMs)));
+  const capacity_Wh = opts.evBatteryCapacity_kWh * 1000;
+  const requests: EvRuleRequestFromPlan[] = [];
+
+  const deadline = (planId: string, ms: number, soc_percent: number) => {
+    // Beyond the horizon: it applies once the horizon reaches it.
+    const raw = Math.floor((ms - opts.nowMs) / stepMs);
+    if (ms <= opts.nowMs || raw > opts.T) return;
+    const boundary = Math.max(1, raw);
+    let home: { startSlot: number; endSlot: number } | undefined;
+    for (const w of windows) {
+      if (w.startSlot >= boundary) break;
+      home = w;
+    }
+    if (!home) return;
+    const to = Math.min(boundary, home.endSlot);
+    if (to <= home.startSlot) return;
+    const soc = Math.min(100, Math.max(0, soc_percent));
+    requests.push({ kind: 'deadline', planId, fromSlot: home.startSlot, toSlot: to, soc_Wh: (soc / 100) * capacity_Wh, soc_percent: soc });
+  };
+
+  for (const o of occurrences) {
+    if (o.suspended) continue;
+    if (o.type === 'target' && o.soc_percent != null) deadline(o.planId, o.startMs, o.soc_percent);
+    else if (o.type === 'departure' && o.soc_percent != null) deadline(o.planId, o.startMs, o.soc_percent);
+    else if (o.type === 'trip') {
+      const usage = tripUsagePercent(o.distance_km ?? 0, opts.evConsumption_kWh_per_100km, opts.evBatteryCapacity_kWh);
+      deadline(o.planId, o.startMs, usage + opts.evTripSocBuffer_percent);
+    } else if (o.type === 'cheapest' && o.endMs != null) {
+      const from = toSlot(o.startMs);
+      const to = toSlot(o.endMs);
+      const soc = Math.min(100, o.soc_percent ?? opts.evMaxSoc_percent);
+      for (const w of windows) {
+        const a = Math.max(from, w.startSlot);
+        const b = Math.min(to, w.endSlot);
+        if (b <= a) continue;
+        requests.push({
+          kind: 'cheapest', planId: o.planId, fromSlot: a, toSlot: b, soc_Wh: (soc / 100) * capacity_Wh, soc_percent: soc,
+          afterFloor: o.afterFloor ?? 'stop',
+          ...(o.ess_soc_percent != null ? { ess_soc_percent: o.ess_soc_percent } : {}),
+        });
+      }
+    }
+  }
+  // Time order; at the same start a deadline first.
+  return requests.sort((a, b) => a.fromSlot - b.fromSlot || (a.kind === b.kind ? a.toSlot - b.toSlot : a.kind === 'deadline' ? -1 : 1));
+}

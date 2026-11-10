@@ -3,7 +3,7 @@ import { buildLP } from '../../lib/build-lp.ts';
 import { parseSolution, type HighsSolution } from '../../lib/parse-solution.ts';
 import { buildPlanSummary } from '../../lib/plan-summary.ts';
 import { extractRebalanceWindow, type RebalanceWindow } from '../../lib/lp-vars.ts';
-import type { SolverConfig, PlanSummary, PlanRow, TimeSeries } from '../../lib/types.ts';
+import type { SolverConfig, PlanSummary, PlanRow, PlanWarning, TimeSeries } from '../../lib/types.ts';
 import { buildSolverConfigFromSettings } from './config-builder.ts';
 import { loadSettings, saveSettings } from './settings-store.ts';
 import { loadData, saveData } from './data-store.ts';
@@ -26,6 +26,9 @@ import { estimateBatteryEnergyPrice, seedBatteryEnergyPrice, trackBatteryEnergyP
 import type { PlanRowWithDess, Data, Settings } from '../types.ts';
 import { currentLedgerPrice, refreshBatteryLedgerAndPersist } from './battery-ledger-service.ts';
 import { computeDynamicEssFloor } from '../../lib/ess-ev-floor.ts';
+import { applyEvRequest, applyPvSurplus, emptyEvFlows, fitDropsToFlows, type EvRuleContext, type EvRuleRow } from '../../lib/ev-rules.ts';
+import { loadEvPlans } from './ev-plan-store.ts';
+import type { EvRuleRequestFromPlan } from './ev-plans.ts';
 
 // How many slots we push into Dynamic ESS
 const DESS_SLOTS = 4;
@@ -174,7 +177,34 @@ function normalizePersistedData(loadedData: Data, evState: EvLiveState | undefin
   };
 }
 
-export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnownUntilMs?: number; timing: { startMs: number; stepMin: number }; data: Data; settings: Settings; evUsage: EvUsageInfo }> {
+/**
+ * Peak target for all grid import, in W (docs/design-ev-charging.md § 7.1): the minimum billed
+ * peak — or the month's peak when that is higher and already paid for may be used — minus the
+ * safety margin. Undefined when the capacity tariff is off (minimum 0).
+ */
+export async function resolvePeakTarget_W(settings: Settings): Promise<number | undefined> {
+  if (!(settings.peakMinimum_kW > 0)) return undefined;
+  let base_kW = settings.peakMinimum_kW;
+  if (settings.peakUsePaidPeak && settings.haMonthPeakSensor) {
+    try {
+      const state = await fetchHaEntityState({ haUrl: settings.haUrl, haToken: settings.haToken, entityId: settings.haMonthPeakSensor });
+      const unit = String(state.attributes?.unit_of_measurement ?? 'kW').trim().toLowerCase();
+      const value = Number.parseFloat(state.state);
+      if (Number.isFinite(value)) base_kW = Math.max(base_kW, unit === 'w' ? value / 1000 : value);
+    } catch (err) {
+      console.warn('Could not read the monthly peak from Home Assistant:', (err as Error).message);
+    }
+  }
+  return Math.max(0, (base_kW - (settings.peakMargin_kW ?? 0)) * 1000);
+}
+
+export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnownUntilMs?: number; timing: { startMs: number; stepMin: number }; data: Data; settings: Settings; evUsage: EvUsageInfo; evRuleRequests?: EvRuleRequestFromPlan[] }> {
+  // Migrates the legacy EV schedule into plans on the first run, and prunes finished plans.
+  try {
+    await loadEvPlans();
+  } catch (err) {
+    console.error('Failed to load EV plans:', err instanceof Error ? err.message : String(err));
+  }
   const [settings, loadedData] = await Promise.all([loadSettings(), loadData()]);
   const startMs = getQuarterStart(new Date(), settings.stepSize_m);
 
@@ -187,8 +217,10 @@ export async function getSolverInputs(): Promise<{ cfg: SolverConfig; pricesKnow
 
   const evUsage = await getEvUsageInfo(settings, startMs);
   const adjustedData = applyPredictionAdjustmentsToData(data);
-  const { cfg, pricesKnownUntilMs } = buildSolverConfigFromSettings(settings, adjustedData, startMs, evState, evUsage.prediction);
-  return { cfg, pricesKnownUntilMs, timing: { startMs, stepMin: settings.stepSize_m }, data, settings, evUsage };
+  const { cfg, pricesKnownUntilMs, evRuleRequests } = buildSolverConfigFromSettings(settings, adjustedData, startMs, evState, evUsage.prediction);
+  const peakTarget_W = await resolvePeakTarget_W(settings);
+  if (peakTarget_W != null) cfg.peakTarget_W = peakTarget_W;
+  return { cfg, pricesKnownUntilMs, timing: { startMs, stepMin: settings.stepSize_m }, data, settings, evUsage, evRuleRequests };
 }
 
 /**
@@ -263,7 +295,8 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
   }
 
   const solverInputs = await getSolverInputs();
-  const { cfg, pricesKnownUntilMs, timing, evUsage } = solverInputs;
+  const { cfg, pricesKnownUntilMs, timing, evUsage, evRuleRequests } = solverInputs;
+  const warnings: PlanWarning[] = [];
   let { data, settings } = solverInputs;
 
   // A just-completed hold cycle solves like any rebalance-free plan
@@ -306,7 +339,79 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
   // around all of them. The home battery is stocked ahead of each stretch (essTargets). These are
   // quick solves: nothing about the EV is left for the solver to decide. If one fails, the plan
   // falls back to deadline-driven charging.
-  if (cfg.ev?.cheapestSource) {
+  if (evRuleRequests && cfg.ev && !settings.evOverrideEnabled) {
+    // EV charging as a fixed rule (docs/design-ev-charging.md § 6): request by request in time
+    // order, the house plan is solved with the EV flows decided so far and the rules fix the
+    // flows for that request; PV surplus outside the plans goes to the EV last. The final solve
+    // below plans the home battery and the grid around them.
+    const ev = cfg.ev;
+    const T = cfg.load_W.length;
+    try {
+      // Stocking the battery up for a window (its ess_soc_percent) is worth what storing a kWh at
+      // the cheapest 15% of prices costs, so dearer power is not bought to reach it.
+      const sortedPrices = [...cfg.importPrice].sort((x, y) => x - y);
+      const cheapPrice = sortedPrices[Math.floor((T - 1) * 0.15)];
+      const stockUpLimit = cheapPrice / (cfg.chargeEfficiency_percent / 100) + cfg.batteryCost_cent_per_kWh + 0.5;
+      const minSoc_Wh = (cfg.minSoc_percent / 100) * cfg.batteryCapacity_Wh;
+      const essTargets = evRuleRequests
+        .filter((r) => r.kind === 'cheapest' && r.ess_soc_percent != null && r.fromSlot >= 1)
+        .map((r) => ({ slot: r.fromSlot - 1, soc_Wh: ((r.ess_soc_percent as number) / 100) * cfg.batteryCapacity_Wh }));
+      // A window's battery target only counts while its flows are still open (from `fromSlot` on).
+      const withFlows = (fixedFlows: ReturnType<typeof emptyEvFlows>, fromSlot: number): SolverConfig => ({
+        ...cfg,
+        // Deadlines stay in ev.targets for the chart markers; with fixed flows the LP ignores them.
+        ev: { ...ev, fixedFlows, availabilityWindows: fitDropsToFlows(ev, fixedFlows, T, cfg.stepSize_m) },
+        socTargets: [...(cfg.socTargets ?? []), ...essTargets.filter((tg) => tg.slot >= fromSlot - 1)],
+        socTargetPenalty_cents_per_kWh: stockUpLimit,
+        socFloors: [...(cfg.socFloors ?? []), ...batteryFloorsForFlows(fixedFlows.b2ev, minSoc_Wh)],
+      });
+      const solveRows = async (c: SolverConfig): Promise<PlanRow[]> =>
+        parseSolution(await solveLp(buildLP(c), { time_limit: SOLVE_TIME_LIMIT_S }), c, timing);
+      const ruleCtx: EvRuleContext = {
+        stepSize_m: cfg.stepSize_m,
+        maxDischargePower_W: cfg.maxDischargePower_W,
+        maxGridImport_W: cfg.maxGridImport_W,
+        dischargeEfficiency_percent: cfg.dischargeEfficiency_percent,
+        batteryCost_cent_per_kWh: cfg.batteryCost_cent_per_kWh,
+        batteryPrice_cents_per_kWh: batteryEnergyPriceSeed,
+        peakTarget_W: cfg.peakTarget_W ?? null,
+        minChargeSlots: Math.max(1, Math.ceil((settings.evMinChargeDuration_m ?? 0) / cfg.stepSize_m)),
+      };
+      const floorOpts = {
+        stepSize_m: cfg.stepSize_m,
+        batteryCapacity_Wh: cfg.batteryCapacity_Wh,
+        minSoc_percent: cfg.minSoc_percent,
+        dischargeEfficiency_percent: cfg.dischargeEfficiency_percent,
+        fixedFloor_percent: settings.evEssSocFloor_percent,
+        margin_Wh: (settings.evEssFloorMargin_kWh ?? 0) * 1000,
+      };
+      let flows = emptyEvFlows(T);
+      for (const req of evRuleRequests) {
+        const rows = await solveRows(withFlows(flows, req.fromSlot));
+        const result = applyEvRequest(rows as EvRuleRow[], ruleCtx, ev, flows, req, computeDynamicEssFloor(rows, floorOpts));
+        flows = result.flows;
+        if (result.shortfall_Wh > 0) {
+          warnings.push({
+            type: 'ev_target_missed',
+            planId: req.planId,
+            atMs: timing.startMs + req.toSlot * timing.stepMin * 60_000,
+            target_percent: req.soc_percent,
+            expected_percent: (result.reached_Wh / ev.evBatteryCapacity_Wh) * 100,
+            limitedByPeak: peakLimitedGrid(rows, ruleCtx, ev.evMaxChargePower_W, req.fromSlot, req.toSlot),
+          });
+        }
+      }
+      flows = applyPvSurplus(await solveRows(withFlows(flows, T + 1)) as EvRuleRow[], ruleCtx, ev, flows);
+      Object.assign(cfg, withFlows(flows, T + 1));
+    } catch (err) {
+      // Without rules the EV does not charge in this plan; the next plan tries again.
+      console.warn('[calculate] EV rules failed; planning without EV charging:', (err as Error).message);
+      warnings.push({ type: 'ev_rules_failed', message: (err as Error).message });
+      const none = emptyEvFlows(T);
+      Object.assign(cfg, { ev: { ...ev, fixedFlows: none, availabilityWindows: fitDropsToFlows(ev, none, T, cfg.stepSize_m) } });
+    }
+  } else if (cfg.ev?.cheapestSource) {
+    // Legacy weekly schedule (no EV plans yet).
     const ev = cfg.ev;
     try {
       const T = cfg.load_W.length;
@@ -448,6 +553,20 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
 
   const summary = buildPlanSummary(rowsWithDess, cfg, diagnostics, rebalanceCtx, batteryEnergyPriceSeed);
   summary.batteryEnergyPriceSource = batteryEnergyPriceSource;
+  if (cfg.peakTarget_W != null) {
+    let peak = { import_W: 0, t: -1 };
+    rows.forEach((r, t) => { if (r.imp > peak.import_W) peak = { import_W: r.imp, t }; });
+    // A few watts over is rounding, not a new peak.
+    if (peak.t >= 0 && peak.import_W > cfg.peakTarget_W + 50) {
+      warnings.push({
+        type: 'peak_over_target',
+        atMs: timing.startMs + peak.t * timing.stepMin * 60_000,
+        import_W: Math.round(peak.import_W),
+        target_W: Math.round(cfg.peakTarget_W),
+      });
+    }
+  }
+  summary.warnings = warnings;
 
   const nextRebalanceDueMs = getRebalanceSchedule(settings, data, timing.startMs).dueMs;
   const rebalanceNudge: RebalanceNudge = {
@@ -457,6 +576,17 @@ export async function computePlan({ updateData = false } = {}): Promise<ComputeP
 
   lastPlan = { cfg, data, batteryEnergyPriceSeed, computedAtMs: Date.now(), inputsVersion, inputsChangedDuringSolve, pricesKnownUntilMs: pricesKnownUntilMs ?? null, timing, result, rows: rowsWithDess, summary, rebalanceWindow, rebalanceNudge, evUsage, evSocForecast };
   return lastPlan;
+}
+
+/** True when the peak target, not the grid connection, held back grid power for the EV in [from, to). */
+function peakLimitedGrid(rows: PlanRow[], ctx: EvRuleContext, evMax_W: number, from: number, to: number): boolean {
+  if (ctx.peakTarget_W == null) return false;
+  for (let t = Math.max(0, from); t < Math.min(rows.length, to); t++) {
+    const underPeak = Math.max(0, ctx.peakTarget_W - rows[t].imp);
+    const underCap = Math.max(0, ctx.maxGridImport_W - rows[t].imp);
+    if (Math.min(evMax_W, underPeak) < Math.min(evMax_W, underCap)) return true;
+  }
+  return false;
 }
 
 export async function writePlanToVictron(rows: PlanRowWithDess[], stepMin: number): Promise<void> {

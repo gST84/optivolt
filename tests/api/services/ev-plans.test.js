@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildEvRuleRequests,
   createEvPlan,
   expandEvPlans,
   migrateLegacyEvPlans,
+  occurrencesToEntries,
+  tripUsagePercent,
   parseEvPlanFields,
   pruneEvPlans,
   updateEvPlan,
@@ -167,5 +170,59 @@ describe('migrateLegacyEvPlans', () => {
     expect(plans[0]).toMatchObject({ id: 'e1', type: 'trip', distance_km: 100, end: '2026-11-12T18:00:00.000Z' });
     expect(plans[1]).toMatchObject({ id: 'e2', type: 'arrival', soc_percent: 40, weekdays: [] });
     for (const p of plans) expect(() => validateEvPlan(p)).not.toThrow();
+  });
+});
+
+describe('towards the planner', () => {
+  const NOW = local(2026, 11, 11, 20); // Wednesday 20:00
+  const occ = (o) => ({ planId: 'p', priority: 2, endMs: null, suspended: false, ...o });
+  const opts = {
+    nowMs: NOW, stepSize_m: 15, T: 96, evBatteryCapacity_kWh: 60, evMaxSoc_percent: 80,
+    evConsumption_kWh_per_100km: 18, evTripSocBuffer_percent: 10,
+  };
+
+  it('turns a distance into a battery share', () => {
+    expect(tripUsagePercent(100, 18, 60)).toBeCloseTo(30, 6);
+    expect(tripUsagePercent(1000, 18, 60)).toBe(100);
+  });
+
+  it('maps a cheapest window to an arrival (only when ahead) and a departure', () => {
+    const window = occ({ type: 'cheapest', priority: 3, startMs: NOW + 2 * 3600000, endMs: NOW + 11 * 3600000 });
+    expect(occurrencesToEntries([window], { evConsumption_kWh_per_100km: 18, evBatteryCapacity_kWh: 60 }, NOW).map((e) => e.type))
+      .toEqual(['arrival', 'departure']);
+    const running = { ...window, startMs: NOW - 3600000 };
+    expect(occurrencesToEntries([running], { evConsumption_kWh_per_100km: 18, evBatteryCapacity_kWh: 60 }, NOW).map((e) => e.type))
+      .toEqual(['departure']);
+  });
+
+  it('builds a deadline from the start of the window the car is home in', () => {
+    const windows = [{ startSlot: 0, endSlot: 44 }, { startSlot: 60, endSlot: 96 }];
+    const [req] = buildEvRuleRequests([occ({ type: 'target', startMs: NOW + 10 * 3600000, soc_percent: 70 })], windows, opts);
+    expect(req).toMatchObject({ kind: 'deadline', fromSlot: 0, toSlot: 40, soc_Wh: 42000, soc_percent: 70 });
+  });
+
+  it('moves a deadline that falls while the car is away back to the window before', () => {
+    const windows = [{ startSlot: 0, endSlot: 20 }, { startSlot: 60, endSlot: 96 }];
+    const [req] = buildEvRuleRequests([occ({ type: 'departure', startMs: NOW + 8 * 3600000, soc_percent: 60 })], windows, opts);
+    expect(req).toMatchObject({ fromSlot: 0, toSlot: 20 });
+  });
+
+  it('asks a trip for its usage plus the buffer at departure', () => {
+    const [req] = buildEvRuleRequests([occ({ type: 'trip', startMs: NOW + 11 * 3600000, endMs: NOW + 20 * 3600000, distance_km: 100 })], [{ startSlot: 0, endSlot: 44 }], opts);
+    expect(req).toMatchObject({ kind: 'deadline', toSlot: 44, soc_percent: 40 });
+  });
+
+  it('clips a cheapest window to availability and keeps its options', () => {
+    const window = occ({ type: 'cheapest', priority: 3, startMs: NOW + 2 * 3600000, endMs: NOW + 11 * 3600000, soc_percent: 90, ess_soc_percent: 95, afterFloor: 'grid' });
+    const [req] = buildEvRuleRequests([window], [{ startSlot: 0, endSlot: 40 }], opts);
+    expect(req).toMatchObject({ kind: 'cheapest', fromSlot: 8, toSlot: 40, soc_percent: 90, ess_soc_percent: 95, afterFloor: 'grid' });
+  });
+
+  it('skips suspended occurrences and deadlines beyond the horizon', () => {
+    const out = buildEvRuleRequests([
+      occ({ type: 'target', startMs: NOW + 5 * 3600000, soc_percent: 70, suspended: true }),
+      occ({ type: 'target', startMs: NOW + 30 * 3600000, soc_percent: 70 }),
+    ], [{ startSlot: 0, endSlot: 96 }], opts);
+    expect(out).toEqual([]);
   });
 });

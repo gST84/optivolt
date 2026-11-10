@@ -163,6 +163,7 @@ export function getElements() {
 
     // EV tab
     evNoCharging: $("#ev-no-charging"),
+    evWarnings: $("#ev-warnings"),
     evChargingSummary: $("#ev-charging-summary"),
     evTabCurrentSocRow: $("#ev-tab-current-soc-row"),
     evTabCurrentSoc: $("#ev-tab-current-soc"),

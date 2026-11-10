@@ -157,6 +157,12 @@ export interface SolverConfig {
   socTargetPenalty_cents_per_kWh?: number;
   /** Hard lower bounds on the home battery SoC at the end of given slots. */
   socFloors?: SocLevel[];
+  /**
+   * Capacity tariff (docs/design-ev-charging.md § 7.2): grid import above this, in W, is penalised
+   * once for the highest excess over the horizon (`peakPenalty_cents_per_kW` per kW). Absent = off.
+   */
+  peakTarget_W?: number;
+  peakPenalty_cents_per_kW?: number;
 }
 
 export interface RebalanceConfig {
@@ -293,9 +299,26 @@ export interface PlanSummary {
   batteryEnergyPrice_cents_per_kWh: number | null;
   /** Where that price comes from: measured in Home Assistant, carried over from the previous plan, or estimated. */
   batteryEnergyPriceSource?: 'ha' | 'plan' | 'estimate';
+  /** What the plan could not do as asked. */
+  warnings?: PlanWarning[];
   /** Planned EV charging sessions with their cost. */
   evSessions: EvSessionSummary[];
 }
+
+/** Something the plan could not do as asked (docs/design-ev-charging.md § 9.5). */
+export type PlanWarning =
+  | {
+    type: 'ev_target_missed';
+    planId: string;
+    /** Deadline (end of the slot it must be met in). */
+    atMs: number;
+    target_percent: number;
+    expected_percent: number;
+    /** The peak target kept the grid from delivering more. */
+    limitedByPeak: boolean;
+  }
+  | { type: 'peak_over_target'; atMs: number; import_W: number; target_W: number }
+  | { type: 'ev_rules_failed'; message: string };
 
 /** One planned EV charging session: a stretch of slots in which the EV may charge. */
 export interface EvSessionSummary {

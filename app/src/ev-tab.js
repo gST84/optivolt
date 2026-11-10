@@ -57,7 +57,35 @@ export function updateEvPanel(els, rows, summary, stepSize_m = 15, evSettings = 
   renderEvPanel({ els, rows, summary, stepSize_m, ev });
 }
 
+const WARNING_TIME = new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+
+/** One line per plan warning (docs/design-ev-charging.md § 9.5). */
+export function describePlanWarning(w) {
+  const at = w.atMs != null ? WARNING_TIME.format(new Date(w.atMs)) : "";
+  if (w.type === "ev_target_missed") {
+    const why = w.limitedByPeak ? " — limited by the peak target" : " — not enough time or power";
+    return `EV target ${Math.round(w.target_percent)}% at ${at} not reachable: about ${Math.round(w.expected_percent)}%${why}.`;
+  }
+  if (w.type === "peak_over_target") {
+    return `Grid import of ${(w.import_W / 1000).toFixed(1)} kW at ${at} exceeds the peak target of ${(w.target_W / 1000).toFixed(1)} kW.`;
+  }
+  if (w.type === "ev_rules_failed") return `EV charging could not be planned: ${w.message}`;
+  return null;
+}
+
+function renderWarnings(el, warnings) {
+  if (!el) return;
+  const lines = (warnings ?? []).map(describePlanWarning).filter(Boolean);
+  el.replaceChildren(...lines.map((text) => {
+    const p = document.createElement("p");
+    p.textContent = text;
+    return p;
+  }));
+  el.classList.toggle("hidden", lines.length === 0);
+}
+
 function renderEvPanel({ els, rows, summary, stepSize_m, ev }) {
+  renderWarnings(els.evWarnings, summary?.warnings);
   const evTotal = summary?.evChargeTotal_kWh ?? 0;
   const hasEv = evTotal > 0;
 

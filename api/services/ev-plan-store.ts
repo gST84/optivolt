@@ -1,9 +1,9 @@
 /**
  * Persistence of EV charging plans in data.json (`evPlans`).
  *
- * The first load migrates the legacy schedule entries and the weekly schedule into plans. The
- * legacy fields stay in place until the planner reads plans (design phase 3), so the running
- * planner keeps working while the new model is built.
+ * The first load migrates the legacy schedule entries and the weekly schedule into plans (only
+ * written when there was something to migrate). From then on the planner reads the plans; the
+ * legacy fields stay in data.json but are no longer used.
  */
 import { assertCondition } from '../http-errors.ts';
 import { loadData, saveData } from './data-store.ts';
@@ -27,6 +27,9 @@ async function loadPlansData(nowMs = Date.now()): Promise<{ data: Data; plans: E
       evConsumption_kWh_per_100km: settings.evConsumption_kWh_per_100km,
       nowMs,
     });
+    // Nothing to migrate: leave data.json alone (the planner keeps its legacy path until the
+    // first plan is saved).
+    if (plans.length === 0) return { data, plans };
     changed = true;
   }
   const pruned = pruneEvPlans(plans, nowMs);

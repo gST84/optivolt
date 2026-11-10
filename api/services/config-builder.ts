@@ -5,6 +5,7 @@ import type { EvUsagePrediction } from '../../lib/ev-trip-usage.ts';
 import { getRebalanceSchedule } from './rebalance-schedule.ts';
 import type { SolverConfig, TimeSeries } from '../../lib/types.ts';
 import type { Settings, Data } from '../types.ts';
+import { buildEvRuleRequests, expandEvPlans, occurrencesToEntries, type EvRuleRequestFromPlan } from './ev-plans.ts';
 
 function getSeriesEndMs(source: TimeSeries): number {
   const step = source.step ?? 15;
@@ -32,7 +33,7 @@ export function buildSolverConfigFromSettings(
   nowMs = getQuarterStart(new Date(), settings.stepSize_m),
   evState?: { pluggedIn: boolean; soc_percent: number },
   evUsagePrediction: EvUsagePrediction | null = null,
-): { cfg: SolverConfig; pricesKnownUntilMs?: number } {
+): { cfg: SolverConfig; pricesKnownUntilMs?: number; evRuleRequests?: EvRuleRequestFromPlan[] } {
   // Extended horizon: append forecast prices past the end of the actual price
   // series. Actual values always win — the forecast never overrides them, and
   // pricesKnownUntilMs marks where actuals end so the UI can flag the rest.
@@ -155,17 +156,45 @@ export function buildSolverConfigFromSettings(
     // callers that want to cap the start range.
   }
 
-  const ev = buildEvConfig(settings, data.evScheduleEntries ?? [], evState, nowMs, base.load_W.length, {
+  const T = base.load_W.length;
+  const evOpts = {
     essSoc_percent: data.soc?.value,
     usagePrediction: evUsagePrediction,
     lastPluggedSoc_percent: data.evLastState?.soc_percent ?? null,
     unpluggedAtMs: data.evLastState && !data.evLastState.pluggedIn ? new Date(data.evLastState.observedAt).getTime() : null,
-  });
+  };
+  // EV plans (docs/design-ev-charging.md § 4): the plans decide when the car is home; the EV rules
+  // in the planner then fix the charging. Without plans (not yet migrated) the legacy schedule
+  // entries and weekly schedule still drive an optimised EV.
+  let evRuleRequests: EvRuleRequestFromPlan[] | undefined;
+  let ev: ReturnType<typeof buildEvConfig>;
+  if (data.evPlans !== undefined) {
+    const horizonEndMs = nowMs + T * settings.stepSize_m * 60_000;
+    const occurrences = expandEvPlans(data.evPlans, nowMs, horizonEndMs);
+    const entries = occurrencesToEntries(occurrences, settings, nowMs);
+    // Legacy knobs off: the weekly schedule became plans, and the rules replace the LP's floor.
+    const evSettings = { ...settings, evWeeklySchedule: [], evWeeklyCheapestSource: false, evEssSocFloor_percent: 0 };
+    ev = buildEvConfig(evSettings, entries, evState, nowMs, T, evOpts);
+    if (ev) {
+      evRuleRequests = buildEvRuleRequests(occurrences, ev.availabilityWindows, {
+        nowMs,
+        stepSize_m: settings.stepSize_m,
+        T,
+        evBatteryCapacity_kWh: settings.evBatteryCapacity_kWh,
+        evMaxSoc_percent: settings.evMaxSoc_percent,
+        evConsumption_kWh_per_100km: settings.evConsumption_kWh_per_100km,
+        evTripSocBuffer_percent: settings.evTripSocBuffer_percent,
+      });
+    }
+  } else {
+    ev = buildEvConfig(settings, data.evScheduleEntries ?? [], evState, nowMs, T, evOpts);
+  }
   if (ev) base.ev = ev;
 
   // Only meaningful when forecast slots actually made it into the window.
   return {
     cfg: base,
     ...(pricesKnownUntilMs != null && pricesKnownUntilMs < alignedEndMs ? { pricesKnownUntilMs } : {}),
+    ...(evRuleRequests ? { evRuleRequests } : {}),
   };
 }

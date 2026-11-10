@@ -125,13 +125,16 @@ router.get('/current', async (_req: Request, res: Response, next: NextFunction) 
     }
 
     // Live home-battery floor: the plan already respects it, but the measured SoC can drift below
-    // the floor between solves. A missing/unreadable settings or data file must never break the
+    // the floor between solves. With EV plans the floor is the plan's dynamic one for this slot
+    // and grid charging was chosen on purpose (cheaper, or after the floor), so only a battery
+    // share is dropped. A missing/unreadable settings or data file must never break the
     // charger feed, so the guard is skipped (fail-open to the plan) when either cannot be read.
+    const rulesPlan = plan.cfg?.ev?.fixedFlows != null;
     let essSoc_percent: number | undefined;
     let floor_percent = 0;
     try {
       const [settings, data] = await Promise.all([loadSettings(), loadData()]);
-      floor_percent = settings?.evEssSocFloor_percent ?? 0;
+      floor_percent = (rulesPlan ? row.essEvFloor_percent : settings?.evEssSocFloor_percent) ?? 0;
       essSoc_percent = data?.soc?.value;
     } catch (err) {
       console.warn('[ev/current] could not read settings/data for the ESS floor guard:', (err as Error).message);
@@ -145,7 +148,7 @@ router.get('/current', async (_req: Request, res: Response, next: NextFunction) 
       g2ev_W: row.g2ev,
       pv2ev_W: row.pv2ev,
       b2ev_W: row.b2ev,
-    }, essSoc_percent, floor_percent, gridPriceLimit != null && row.ic < gridPriceLimit);
+    }, essSoc_percent, floor_percent, rulesPlan || (gridPriceLimit != null && row.ic < gridPriceLimit));
 
     res.json({
       timestampMs: row.timestampMs,
@@ -154,6 +157,7 @@ router.get('/current', async (_req: Request, res: Response, next: NextFunction) 
       is_charging: decision.ev_charge_W > 0,
       plan_valid: true,
       override_active: false,
+      warnings: plan.summary?.warnings ?? [],
     });
   } catch (error) {
     next(toHttpError(error, 500, 'Failed to read the current EV decision'));

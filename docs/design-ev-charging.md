@@ -196,6 +196,23 @@ anders (ondergrens bereikt)        → stoppen of doorladen van het net (instell
   leveren. Wat de EV meer vraagt komt van het net en valt onder de piekgrens.
 - PV-overschot gaat altijd eerst naar de EV, als die laadt.
 
+*Gebouwd (fase 3):* `lib/ev-rules.ts`. De planner zet de plannen om in laadverzoeken
+(`buildEvRuleRequests` in `api/services/ev-plans.ts`): een *deadline* (doel-SoC, vertrek met
+SoC, trip = verbruik + buffer) vanaf het begin van het venster waarin de auto thuis is, en een
+*goedkoopste* venster per stuk waarin de auto thuis is. Per verzoek, in tijdsvolgorde, lost de
+planner het huisplan op met de EV-stromen tot dan, berekent de dynamische ondergrens en laat de
+regels de stromen vastleggen:
+
+- *goedkoopste*: per kwartier PV-overschot, dan net als `importprijs ≤ ESS-kost`, anders ESS tot
+  de ondergrens (met het vermogen dat het huis vrijlaat), daarna net enkel bij `afterFloor: grid`;
+- *deadline*: de goedkoopste (kwartier, bron)-opties eerst tot het doel gehaald is.
+
+Daarna gaat PV-overschot buiten de plannen naar de EV (tot `evMaxSoc_percent`), en lost de LP
+een laatste keer op met alle EV-stromen vast. Net voor de EV blijft onder de piek-doelgrens en
+`maxGridImport_W`. Een trip die meer verbruikt dan er bij vertrek in de auto zit, wordt
+afgetopt zodat de LP haalbaar blijft. Met "Charge now" aan blijft het oude pad (LP kiest vrij)
+tot fase 4.
+
 ### 6.3 Minimale laadduur
 
 Om aan/uit per kwartier te vermijden: **minimale laadduur** (standaard 30 min) en **minimale
@@ -234,6 +251,12 @@ doelgrens  = basis − marge
 - Het ESS-laden van het net wordt dus over de goedkope kwartieren gespreid zodat
   `huis (voorspeld) + ESS-laden + EV ≤ doelgrens`.
 - `maxGridImport_W` blijft bestaan als **harde fysieke grens** (aansluiting/zekering).
+
+*Gebouwd (fase 3):* `peakTarget_W` in de LP is één variabele voor het hoogste deel boven de
+doelgrens, met een boete van 500 c€ per kW (`PEAK_PENALTY_CENTS_PER_KW`, ongeveer een maand
+capaciteitstarief). Een piek die al boven de grens zit is daarna gratis voor de rest van de
+horizon, zoals een maandpiek. De maandpiek-sensor telt enkel mee met "gebruik betaalde piek";
+minimumpiek 0 = uit.
 
 ### 7.3 Bewaker (emmer per kwartier)
 
@@ -283,6 +306,12 @@ elk prijsniveau gescheiden blijven.
 
 Elke gebruikte boetevariabele (> 0) wordt in het plan gemeld: welk doel, hoeveel tekort, en de
 oorzaak (te weinig tijd, piekgrens, ESS-ondergrens).
+
+*Gebouwd (fase 3):* de EV-doelen zitten niet meer in de LP (de regels leggen de stromen vast),
+dus de LP kan daardoor niet meer "Infeasible" worden. Meldingen staan in `summary.warnings` en
+in `/ev/current` (`warnings`): `ev_target_missed` (met verwacht % en of de piekgrens de
+oorzaak was), `peak_over_target` en `ev_rules_failed`. De minimum-SoC-boete is ongewijzigd
+gebleven.
 
 ### 8.2 Rekenen in stappen
 
