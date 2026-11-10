@@ -3,6 +3,7 @@ import { loadInitialConfig } from "./src/config-store.js";
 import { initPredictionsTab, reloadStoredForecasts } from "./src/predictions.js";
 import {
   refreshEvSensorStates,
+  loadHaEntityOptions,
   wireEvSensorInputs,
 } from "./src/ev-settings.js";
 import { createEvScheduleController } from "./src/ev-schedule.js";
@@ -163,6 +164,7 @@ async function boot() {
   // Fire-and-forget: fetch HA sensor states so the EV Status card shows current values.
   // Not awaited — HA may be slow or unconfigured; the initial solve should not wait for it.
   void refreshEvSensorStates(els);
+  void loadHaEntityOptions(els);
 
   // Reveal the cards *before* the first solve. Cards are opacity:0 until
   // revealed, so revealing afterwards left the whole panel blank for the

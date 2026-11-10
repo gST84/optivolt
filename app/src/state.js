@@ -62,6 +62,31 @@ export function snapshotUI(els) {
     evWeeklySchedule: readWeeklySchedule(els.evWeeklySchedule),
     evSocSensor: els.evSocSensor?.value ?? '',
     evPlugSensor: els.evPlugSensor?.value ?? '',
+    evPowerSensor: els.evPowerSensor?.value ?? '',
+    evOdometerSensor: els.evOdometerSensor?.value ?? '',
+    evConsumption_kWh_per_100km: num(els.evConsumption?.value),
+    evEssFloorMargin_kWh: num(els.evEssFloorMargin?.value),
+    evPhaseMode: els.evPhaseMode?.value || '1',
+    evVoltage_V: num(els.evVoltage?.value),
+    evMinChargeDuration_m: num(els.evMinChargeDuration?.value),
+    evMinPauseDuration_m: num(els.evMinPauseDuration?.value),
+    evPhaseSwitchMinInterval_m: num(els.evPhaseSwitchInterval?.value),
+    evFallbackMode: els.evFallbackMode?.value || 'min',
+    evFallbackTimeout_m: num(els.evFallbackTimeout?.value),
+    evDirectMode: els.evDirectMode?.value || 'fixed',
+    evSlowGridMode: els.evSlowGridMode?.value || 'min',
+    evDirectIgnorePeak: !!els.evDirectIgnorePeak?.checked,
+
+    // CAPACITY TARIFF + POWER SENSORS
+    peakMinimum_kW: num(els.peakMinimum?.value),
+    peakMargin_kW: num(els.peakMargin?.value),
+    peakUsePaidPeak: !!els.peakUsePaid?.checked,
+    haMonthPeakSensor: els.haMonthPeakSensor?.value ?? '',
+    haGridImportPowerSensor: els.haGridImportSensor?.value ?? '',
+    haGridExportPowerSensor: els.haGridExportSensor?.value ?? '',
+    haPvPowerSensor: els.haPvSensor?.value ?? '',
+    haBatteryChargePowerSensor: els.haBatteryChargeSensor?.value ?? '',
+    haBatteryDischargePowerSensor: els.haBatteryDischargeSensor?.value ?? '',
 
     // UI-only
     tableShowKwh: !!els.tableKwh?.checked,
@@ -152,6 +177,35 @@ export function hydrateUI(els, obj = {}) {
   if (Array.isArray(obj.evWeeklySchedule)) renderWeeklySchedule(els, obj.evWeeklySchedule);
   setIfDef(els.evSocSensor, obj.evSocSensor);
   setIfDef(els.evPlugSensor, obj.evPlugSensor);
+  setIfDef(els.evPowerSensor, obj.evPowerSensor);
+  setIfDef(els.evOdometerSensor, obj.evOdometerSensor);
+  setIfDef(els.evConsumption, obj.evConsumption_kWh_per_100km);
+  setIfDef(els.evEssFloorMargin, obj.evEssFloorMargin_kWh);
+  setIfDef(els.evPhaseMode, obj.evPhaseMode);
+  setIfDef(els.evVoltage, obj.evVoltage_V);
+  setIfDef(els.evMinChargeDuration, obj.evMinChargeDuration_m);
+  setIfDef(els.evMinPauseDuration, obj.evMinPauseDuration_m);
+  setIfDef(els.evPhaseSwitchInterval, obj.evPhaseSwitchMinInterval_m);
+  setIfDef(els.evFallbackMode, obj.evFallbackMode);
+  setIfDef(els.evFallbackTimeout, obj.evFallbackTimeout_m);
+  setIfDef(els.evDirectMode, obj.evDirectMode);
+  setIfDef(els.evSlowGridMode, obj.evSlowGridMode);
+  if (els.evDirectIgnorePeak && obj.evDirectIgnorePeak != null) {
+    els.evDirectIgnorePeak.checked = !!obj.evDirectIgnorePeak;
+  }
+
+  // CAPACITY TARIFF + POWER SENSORS
+  setIfDef(els.peakMinimum, obj.peakMinimum_kW);
+  setIfDef(els.peakMargin, obj.peakMargin_kW);
+  if (els.peakUsePaid && obj.peakUsePaidPeak != null) {
+    els.peakUsePaid.checked = !!obj.peakUsePaidPeak;
+  }
+  setIfDef(els.haMonthPeakSensor, obj.haMonthPeakSensor);
+  setIfDef(els.haGridImportSensor, obj.haGridImportPowerSensor);
+  setIfDef(els.haGridExportSensor, obj.haGridExportPowerSensor);
+  setIfDef(els.haPvSensor, obj.haPvPowerSensor);
+  setIfDef(els.haBatteryChargeSensor, obj.haBatteryChargePowerSensor);
+  setIfDef(els.haBatteryDischargeSensor, obj.haBatteryDischargePowerSensor);
 
   // UI-only
   if (els.tableKwh && obj.tableShowKwh != null) {

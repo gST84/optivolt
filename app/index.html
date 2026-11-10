@@ -932,15 +932,135 @@
               </span>
             </label>
             <label class="block text-sm">SoC sensor entity ID
-              <input id="ev-soc-sensor" type="text" placeholder="sensor.ev_battery_level"
+              <input id="ev-soc-sensor" type="text" placeholder="sensor.ev_battery_level" list="ha-entity-list"
                 class="form-input font-mono text-xs" data-no-autosolve data-settings-input />
               <span id="ev-soc-value" class="mt-1 block text-xs text-slate-500 dark:text-slate-400"></span>
             </label>
             <label class="block text-sm">Plug sensor entity ID
-              <input id="ev-plug-sensor" type="text" placeholder="binary_sensor.ev_charger_plug"
+              <input id="ev-plug-sensor" type="text" placeholder="binary_sensor.ev_charger_plug" list="ha-entity-list"
                 class="form-input font-mono text-xs" data-no-autosolve data-settings-input />
               <span id="ev-plug-value" class="mt-1 block text-xs text-slate-500 dark:text-slate-400"></span>
             </label>
+            <label class="block text-sm">EV charging power sensor (W, optional)
+              <input id="ev-power-sensor" type="text" placeholder="sensor.ev_charger_power" list="ha-entity-list"
+                class="form-input font-mono text-xs" data-no-autosolve data-settings-input data-ha-sensor />
+              <span id="ev-power-sensor-value" class="mt-1 block text-xs text-slate-500 dark:text-slate-400"></span>
+            </label>
+            <label class="block text-sm">Odometer sensor (km, optional)
+              <input id="ev-odometer-sensor" type="text" placeholder="sensor.ev_odometer" list="ha-entity-list"
+                class="form-input font-mono text-xs" data-no-autosolve data-settings-input data-ha-sensor />
+              <span class="mt-1 block text-xs text-slate-500 dark:text-slate-400">Lets Optivolt learn the real consumption per km for trips.</span>
+              <span id="ev-odometer-sensor-value" class="mt-1 block text-xs text-slate-500 dark:text-slate-400"></span>
+            </label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm">Consumption (kWh/100 km)
+                <input id="ev-consumption" type="number" min="1" max="60" step="0.5"
+                  class="form-input" data-settings-input />
+              </label>
+              <label class="block text-sm">Home battery margin (kWh)
+                <input id="ev-ess-floor-margin" type="number" min="0" step="0.5"
+                  class="form-input" data-settings-input />
+                <span class="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                  Kept on top of the dynamic floor (house use until the next recharge).
+                </span>
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm">Charger phases
+                <select id="ev-phase-mode" class="form-select" data-settings-input>
+                  <option value="1">1 phase</option>
+                  <option value="3">3 phases</option>
+                  <option value="auto">Switch automatically</option>
+                </select>
+              </label>
+              <label class="block text-sm">Voltage (V)
+                <input id="ev-voltage" type="number" min="100" max="400" step="1"
+                  class="form-input" data-settings-input />
+              </label>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <label class="block text-sm">Min. charge block (min)
+                <input id="ev-min-charge-duration" type="number" min="0" max="240" step="5"
+                  class="form-input" data-settings-input />
+              </label>
+              <label class="block text-sm">Min. pause (min)
+                <input id="ev-min-pause-duration" type="number" min="0" max="240" step="5"
+                  class="form-input" data-settings-input />
+              </label>
+              <label class="block text-sm">Phase switch gap (min)
+                <input id="ev-phase-switch-interval" type="number" min="0" max="120" step="1"
+                  class="form-input" data-settings-input />
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm">Fallback when unanswered
+                <select id="ev-fallback-mode" class="form-select" data-settings-input>
+                  <option value="min">Minimum current</option>
+                  <option value="stop">Stop charging</option>
+                </select>
+              </label>
+              <label class="block text-sm">Fallback after (min)
+                <input id="ev-fallback-timeout" type="number" min="1" max="60" step="1"
+                  class="form-input" data-settings-input />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <!-- Capacity tariff + power sensors (docs/design-ev-charging.md § 5, § 7) -->
+        <section class="card">
+          <div class="mb-4">
+            <h2 class="sidebar-label">Capacity tariff</h2>
+          </div>
+          <div class="space-y-3">
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm">Minimum billed peak (kW)
+                <input id="peak-minimum" type="number" min="0" step="0.1"
+                  class="form-input" data-settings-input />
+              </label>
+              <label class="block text-sm">Safety margin (kW)
+                <input id="peak-margin" type="number" min="0" step="0.05"
+                  class="form-input" data-settings-input />
+              </label>
+            </div>
+            <label class="toggle">
+              <input id="peak-use-paid" type="checkbox" data-settings-input>
+              <span class="toggle-knob"></span>
+              <span class="text-sm text-slate-600 dark:text-slate-400">Use a monthly peak that is already higher (already paid)</span>
+            </label>
+            <label class="block text-sm">Monthly peak sensor (kW)
+              <input id="ha-month-peak-sensor" type="text" placeholder="sensor.p1_month_peak" list="ha-entity-list"
+                class="form-input font-mono text-xs" data-no-autosolve data-settings-input data-ha-sensor />
+              <span id="ha-month-peak-sensor-value" class="mt-1 block text-xs text-slate-500 dark:text-slate-400"></span>
+            </label>
+            <label class="block text-sm">Grid power sensor (W, import)
+              <input id="ha-grid-import-sensor" type="text" placeholder="sensor.grid_power" list="ha-entity-list"
+                class="form-input font-mono text-xs" data-no-autosolve data-settings-input data-ha-sensor />
+              <span class="mt-1 block text-xs text-slate-500 dark:text-slate-400">Signed (import +, export −) when the export sensor below is empty.</span>
+              <span id="ha-grid-import-sensor-value" class="mt-1 block text-xs text-slate-500 dark:text-slate-400"></span>
+            </label>
+            <label class="block text-sm">Grid export power sensor (W, optional)
+              <input id="ha-grid-export-sensor" type="text" placeholder="sensor.grid_export_power" list="ha-entity-list"
+                class="form-input font-mono text-xs" data-no-autosolve data-settings-input data-ha-sensor />
+              <span id="ha-grid-export-sensor-value" class="mt-1 block text-xs text-slate-500 dark:text-slate-400"></span>
+            </label>
+            <label class="block text-sm">PV power sensor (W)
+              <input id="ha-pv-sensor" type="text" placeholder="sensor.pv_power" list="ha-entity-list"
+                class="form-input font-mono text-xs" data-no-autosolve data-settings-input data-ha-sensor />
+              <span id="ha-pv-sensor-value" class="mt-1 block text-xs text-slate-500 dark:text-slate-400"></span>
+            </label>
+            <label class="block text-sm">Battery power sensor (W, charging)
+              <input id="ha-battery-charge-sensor" type="text" placeholder="sensor.battery_power" list="ha-entity-list"
+                class="form-input font-mono text-xs" data-no-autosolve data-settings-input data-ha-sensor />
+              <span class="mt-1 block text-xs text-slate-500 dark:text-slate-400">Signed (charging +, discharging −) when the discharge sensor below is empty.</span>
+              <span id="ha-battery-charge-sensor-value" class="mt-1 block text-xs text-slate-500 dark:text-slate-400"></span>
+            </label>
+            <label class="block text-sm">Battery discharge power sensor (W, optional)
+              <input id="ha-battery-discharge-sensor" type="text" placeholder="sensor.battery_discharge_power" list="ha-entity-list"
+                class="form-input font-mono text-xs" data-no-autosolve data-settings-input data-ha-sensor />
+              <span id="ha-battery-discharge-sensor-value" class="mt-1 block text-xs text-slate-500 dark:text-slate-400"></span>
+            </label>
+            <datalist id="ha-entity-list"></datalist>
           </div>
         </section>
 
@@ -1007,6 +1127,25 @@
                 A
               </label>
             </div>
+            <div class="mt-2 grid grid-cols-2 gap-3">
+              <label class="block text-sm">Mode
+                <select id="ev-direct-mode" class="form-select" data-settings-input>
+                  <option value="fixed">Fixed current</option>
+                  <option value="fast_ess">Fast from home battery</option>
+                </select>
+              </label>
+              <label class="block text-sm">Below the battery floor
+                <select id="ev-slow-grid-mode" class="form-select" data-settings-input>
+                  <option value="min">Minimum current</option>
+                  <option value="peak">Up to the peak target</option>
+                </select>
+              </label>
+            </div>
+            <label class="toggle mt-2">
+              <input id="ev-direct-ignore-peak" type="checkbox" data-settings-input>
+              <span class="toggle-knob"></span>
+              <span class="text-sm text-slate-600 dark:text-slate-400">Ignore the peak target</span>
+            </label>
             <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
               Overrules the plan: <code>/ev/current</code> reports this current (mode <code>fixed</code>,
               <code>override_active: true</code>) and the plan charges the car at it from now on,

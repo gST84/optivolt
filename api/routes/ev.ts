@@ -18,6 +18,13 @@ import {
   loadActiveEvScheduleEntriesAndPrune,
   updateStoredEvScheduleEntry,
 } from '../services/ev-schedule-store.ts';
+import {
+  createStoredEvPlan,
+  deleteStoredEvPlan,
+  loadEvPlans,
+  updateStoredEvPlan,
+} from '../services/ev-plan-store.ts';
+import type { EvPlanInput } from '../services/ev-plans.ts';
 
 const router = express.Router();
 
@@ -198,6 +205,48 @@ router.delete('/schedule-entries/:id', async (req: Request, res: Response, next:
     res.json(await deleteStoredEvScheduleEntry(String(req.params.id)));
   } catch (error) {
     next(toHttpError(error, 500, 'Failed to delete EV schedule entry'));
+  }
+});
+
+// ----------------------------- Plans -----------------------------------
+// EV charging plans (docs/design-ev-charging.md § 4), persisted in data.json. The first read
+// migrates the legacy schedule entries and weekly schedule.
+
+function assertObjectBody(body: unknown): asserts body is EvPlanInput {
+  assertCondition(!!body && typeof body === 'object' && !Array.isArray(body), 400, 'EV plan payload must be an object');
+}
+
+router.get('/plans', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json({ plans: await loadEvPlans() });
+  } catch (error) {
+    next(toHttpError(error, 500, 'Failed to read EV plans'));
+  }
+});
+
+router.post('/plans', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    assertObjectBody(req.body);
+    res.status(201).json(await createStoredEvPlan(req.body));
+  } catch (error) {
+    next(toHttpError(error, 500, 'Failed to create EV plan'));
+  }
+});
+
+router.patch('/plans/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    assertObjectBody(req.body);
+    res.json(await updateStoredEvPlan(String(req.params.id), req.body));
+  } catch (error) {
+    next(toHttpError(error, 500, 'Failed to update EV plan'));
+  }
+});
+
+router.delete('/plans/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(await deleteStoredEvPlan(String(req.params.id)));
+  } catch (error) {
+    next(toHttpError(error, 500, 'Failed to delete EV plan'));
   }
 });
 

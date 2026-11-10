@@ -5,6 +5,7 @@ import { bumpSolverInputsVersion } from './solver-inputs-version.ts';
 import type { Data, TimeSeries } from '../types.ts';
 import { validatePredictionAdjustment } from './prediction-adjustments.ts';
 import { validateEvScheduleEntry } from './ev-schedule-entries.ts';
+import { validateEvPlan } from './ev-plans.ts';
 import { recordFullSocObservation } from './rebalance-nudge.ts';
 
 const DATA_DIR = resolveDataDir();
@@ -63,6 +64,14 @@ export function validateData(d: Data): Data {
     }
     for (const entry of d.evScheduleEntries) {
       validateEvScheduleEntry(entry);
+    }
+  }
+  if (d.evPlans !== undefined) {
+    if (!Array.isArray(d.evPlans)) {
+      throw new Error('Invalid evPlans: must be an array');
+    }
+    for (const plan of d.evPlans) {
+      validateEvPlan(plan);
     }
   }
   if (d.evLastState !== undefined) {

@@ -1,0 +1,15 @@
+{
+  "name": "Midday cheaper than night: no night grid charging",
+  "config": { "initialSoc_percent": 40 },
+  "hourly": {
+    "importPrice": [30, 30, 30, 30, 30, 30, 32, 35, 25, 18, 12, 10, 10, 10, 12, 18, 30, 40, 42, 40, 36, 33, 31, 30],
+    "exportPrice": [2],
+    "load_W": [500],
+    "pv_W": [0]
+  },
+  "checks": [
+    { "type": "status", "value": "Optimal" },
+    { "type": "zero", "field": "g2b", "fromHour": 0, "toHour": 6 },
+    { "type": "energyAtLeast", "field": "g2b", "fromHour": 10, "toHour": 14, "value_Wh": 1000 }
+  ]
+}

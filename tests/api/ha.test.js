@@ -6,7 +6,7 @@ vi.mock('../../api/services/settings-store.ts');
 vi.mock('../../api/services/ha-client.ts');
 
 import { loadSettings } from '../../api/services/settings-store.ts';
-import { fetchHaEntityState } from '../../api/services/ha-client.ts';
+import { fetchHaEntityState, fetchHaStates } from '../../api/services/ha-client.ts';
 
 const mockSettings = {
   haUrl: 'ws://homeassistant.local:8123/api/websocket',
@@ -59,5 +59,37 @@ describe('GET /ha/entity/:entityId', () => {
     expect(fetchHaEntityState).toHaveBeenCalledWith(
       expect.objectContaining({ entityId: 'sensor.test entity' }),
     );
+  });
+});
+
+describe('GET /ha/entities', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    loadSettings.mockResolvedValue(mockSettings);
+  });
+
+  it('lists entities of the requested domains, sorted, with name and unit', async () => {
+    fetchHaStates.mockResolvedValue([
+      { entity_id: 'sensor.pv_power', state: '1200', attributes: { friendly_name: 'PV power', unit_of_measurement: 'W' } },
+      { entity_id: 'switch.charger', state: 'on', attributes: {} },
+      { entity_id: 'binary_sensor.ev_plug', state: 'on', attributes: { friendly_name: 'EV plug' } },
+    ]);
+
+    const res = await request(app).get('/ha/entities?domains=sensor,binary_sensor');
+
+    expect(res.status).toBe(200);
+    expect(res.body.entities).toEqual([
+      { entityId: 'binary_sensor.ev_plug', name: 'EV plug', unit: null, state: 'on' },
+      { entityId: 'sensor.pv_power', name: 'PV power', unit: 'W', state: '1200' },
+    ]);
+  });
+
+  it('returns 422 when HA cannot be reached', async () => {
+    fetchHaStates.mockRejectedValue(new Error('HA returned 401 for the list of states'));
+
+    const res = await request(app).get('/ha/entities');
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain('401');
   });
 });

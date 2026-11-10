@@ -69,6 +69,25 @@ export async function fetchHaEntityState({
   return res.json() as Promise<HaEntityState>;
 }
 
+// ----------------------------- REST: all states -----------------------------
+
+/** Every entity's current state (GET /api/states), e.g. to offer entities in a picker. */
+export async function fetchHaStates({ haUrl, haToken, timeoutMs = 10000 }: {
+  haUrl: string;
+  haToken: string;
+  timeoutMs?: number;
+}): Promise<HaEntityState[]> {
+  const addonToken = supervisorToken();
+  const baseUrl = addonToken ? 'http://supervisor/core' : wsUrlToHttp(haUrl);
+  const res = await fetchWithTimeout(
+    `${baseUrl}/api/states`,
+    { headers: { Authorization: `Bearer ${addonToken ?? haToken}` } },
+    { timeoutMs, label: 'Home Assistant states request' },
+  );
+  if (!res.ok) throw new Error(`HA returned ${res.status} for the list of states`);
+  return res.json() as Promise<HaEntityState[]>;
+}
+
 // ----------------------------- REST: state history -----------------------------
 
 interface FetchHaHistoryOptions {
